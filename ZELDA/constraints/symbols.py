@@ -1,4 +1,6 @@
+from distutils.command.config import config
 from sympy import *
+from typing import List
 
 # CONSTRAINTS
 # 1) minimally 1 door: 2 blocks left or right, 3 blocks top or bottom
@@ -32,8 +34,54 @@ room_no_walls_i = ~i2_wall & ~i3_wall & ~i4_wall & ~i5_wall & ~i6_wall & ~i7_wal
 
 room_no_walls = room_no_walls_c & room_no_walls_d & room_no_walls_e & room_no_walls_f & room_no_walls_g & room_no_walls_h & room_no_walls_i
 
-total = doors & outer_walls & room_no_walls
-print(total)
-cnf = to_cnf(total, simplify=True, force=True)
-print(cnf)
-print(total)
+total = doors & outer_walls #& room_no_walls
+cnf = to_cnf(total, simplify=False, force=True)
+
+def to_dimacs(cnf: str) -> List[str]:
+    count = 1
+    clauses = []
+    variables = {}
+    splitted = cnf.strip().split(" & ")
+
+    for clause in splitted:
+        result = ""
+        if clause[0] == '(':
+            or_clause = clause[1:-1].strip(" ").split(" | ")
+            for literal in or_clause:
+                if literal in variables:
+                    number = variables[literal]
+                else:
+                    number = count
+                    count += 1
+                    variables[literal] = number
+                result += str(number) + ' '
+            result += '0'
+        elif clause[0] == '~':
+            literal = clause[1:]
+            if literal in variables:
+                number = variables[literal]
+            else:
+                number = count
+                count += 1
+                variables[literal] = number
+            result += str(number) + ' 0'
+        else:
+            literal = clause
+            if literal in variables:
+                number = variables[literal]
+            else:
+                number = count
+                count += 1
+                variables[literal] = number
+            result += str(number) + ' 0'
+
+
+        clauses.append(result)
+    
+    
+    return [f"p cnf {count-1} {len(clauses)}"] + clauses
+
+dimacs = to_dimacs(str(cnf))
+dimacs_str = "\n".join(dimacs)
+with open("./basic_constraint.txt", 'w') as constraints_file:
+    constraints_file.write(dimacs_str)

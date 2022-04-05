@@ -12,6 +12,8 @@ imageio = "*"
 matplotlib = "*"
 tqdm = "*"
 sympy = "*"
+hiddenlayer = "*"
+graphviz = "*"
 
 [dev-packages]
 

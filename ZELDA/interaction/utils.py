@@ -169,6 +169,10 @@ class RunningSecondMoment:
         sub_batch = -(-(10 << 30) // (a.shape[1] * a.shape[1]))
         # Update the covariance using the batch deviation
         self.count += batch_count
+        #print(a.shape)
+        #print(a[:, :, None].shape)
+        #print(a)
+        #print(a[:, :, None])
         progress_addbmm(self.mom2, a[:, :, None], a[:, None, :], sub_batch)
 
     def cpu_(self):
@@ -194,11 +198,3 @@ class RunningSecondMoment:
         self.count = dic['count'].item()
         self.mom2 = torch.from_numpy(dic['mom2'])
 
-def call_compute(compute, batch):
-    '''Utility for passing a dataloader batch to a compute function.'''
-    if isinstance(batch, list):
-        return compute(*batch)
-    elif isinstance(batch, dict):
-        return compute(**batch)
-    else:
-        return compute(batch)

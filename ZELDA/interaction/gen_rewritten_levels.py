@@ -11,7 +11,7 @@ nz = 128
 temperature = 1.0
 
 generator = GeneratorConv(nz, temperature)
-generator.load_state_dict(torch.load("./generator.pth"))
+generator.load_state_dict(torch.load("./rewritten_generator.pth"))
 generator.eval()
 
 for i in range(5):
@@ -20,6 +20,5 @@ for i in range(5):
     image = transform_to_image_format(result)
     image = make_grid(image)
     image = np.array(to_pil_image(image))
-    torch.save(result, f'./levels/generated/{i}/tensor.pt')
-    torch.save(rnd_input, f'./levels/generated/{i}/latent.pt')
-    imageio.imsave(f'./levels/generated/{i}/image.png', image)
+    torch.save(result, f'./levels/rewritten/{i}/tensor.pt')
+    imageio.imsave(f'./levels/rewritten/{i}/image.png', image)

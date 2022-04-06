@@ -198,3 +198,6 @@ class RunningSecondMoment:
         self.count = dic['count'].item()
         self.mom2 = torch.from_numpy(dic['mom2'])
 
+def set_requires_grad(requires_grad, model):
+    for param in model.parameters():
+        param.requires_grad = requires_grad

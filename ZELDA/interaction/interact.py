@@ -79,8 +79,15 @@ with torch.no_grad():
 c_inverse = torch.inverse(c_matrix)
 
 print("Loading given key examples...")
-z = torch.randn(NB_KEYS, nz, 4, 4)
-#z = torch.load(f'./levels/generated/{KEY_ID}/latent.pt')
+#z = torch.randn(NB_KEYS, nz, 4, 4)
+z_arr = []
+for i in range(NB_KEYS):
+    z_elem = torch.load(f'./levels/generated/{i}/latent.pt')
+    z_arr.append(z_elem)
+
+z = torch.Tensor(NB_KEYS, z_arr[0].shape[1], z_arr[0].shape[2], z_arr[0].shape[3])
+torch.cat(z_arr, out=z)
+
 k = context_model(z).detach()
 k.requires_grad = False
 #print("k* shape", k.shape)
@@ -122,10 +129,12 @@ v_new_arr = []
 x_edited_arr = []
 
 for i in range(NB_KEYS):
-    x_edited_arr.append(torch.randn(1, 10, 16, 11))
-    #x_edited = torch.load(f'./levels/edited/{KEY_ID}/tensor.pt')
+    #x_edited_arr.append(torch.randn(1, 10, 16, 11))
+    x_edited = torch.load(f'./levels/edited/{i}/tensor.pt')
+    x_edited_arr.append(x_edited)
 
 for j in range(NB_KEYS):
+    print(f"-> Find v* of {j+1}th key...")
     v_key = v[i][None,:]
     v_new = estimate_v(rendering_model, v_key, x_edited_arr[i], temperature, V_ITER)
     v_new_arr.append(v_new)
@@ -138,11 +147,27 @@ for j in range(NB_KEYS):
 #plt.title("V losses")
 #plt.plot(v_losses)
 #plt.show()
+assert len(k_arr) != 0 and len(v_new_arr) != 0 and len(d_og_arr) != 0
+
+print("Merging all keys, values and directions into tensors...")
+
+all_keys = torch.Tensor(NB_KEYS, k_arr[0].shape[1], k_arr[0].shape[2], k_arr[0].shape[3])
+torch.cat(k_arr, out=all_keys)
+
+all_values = torch.Tensor(NB_KEYS, v_new_arr[0].shape[1], v_new_arr[0].shape[2], v_new_arr[0].shape[3])
+torch.cat(v_new_arr, out=all_values)
+
+all_directions = torch.Tensor(NB_KEYS, d_og_arr[0].shape[1], d_og_arr[0].shape[2], d_og_arr[0].shape[3])
+torch.cat(d_og_arr, out=all_directions)
+
+print(all_keys.shape)
+print(all_values.shape)
+print(all_directions.shape)
 
 print("Calculating new weights using (k*,v*) pairs...")
 
 #weight = og_insert()
-weight = linear_insert(model, target_model, k_arr, v_new_arr, d, KEY_ID, W_ITER=1000)
+weight = linear_insert(model, target_model, all_keys, all_values, all_directions, W_ITER)
 #print(weight.shape)
 
 print("Rewriting model...")

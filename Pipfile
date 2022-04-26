@@ -14,6 +14,7 @@ tqdm = "*"
 sympy = "*"
 hiddenlayer = "*"
 graphviz = "*"
+pylon-lib = "*"
 
 [dev-packages]
 

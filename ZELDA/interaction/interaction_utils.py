@@ -76,9 +76,9 @@ def og_insert(target_model, k, v_new, W_ITER=1000):
     plt.show()
     return weight
 
-def linear_insert(model, target_model, keys, vals, d, KEY_ID, W_ITER=1000):
+def linear_insert(model, target_model, keys, vals, d_og, W_ITER=1000):
     set_requires_grad(False, model)
-    key, val = keys[KEY_ID].detach(), vals[KEY_ID].detach()
+    key, val = keys.detach(), vals.detach()
     key.requires_grad = False
     val.requires_grad = False
     original_weight = [p for n, p in target_model.named_parameters()
@@ -89,7 +89,7 @@ def linear_insert(model, target_model, keys, vals, d, KEY_ID, W_ITER=1000):
     original_weight = original_weight[None, :].permute(0, 2, 1, 3, 4)
     ws = original_weight.shape
     lambda_param = torch.zeros(
-        ws[0], ws[1], d.shape[0],
+        ws[0], ws[1], d_og.shape[0],
         ws[3], ws[4], device=original_weight.device,
         requires_grad=True)
     old_forward = hooked_module.forward
@@ -132,7 +132,7 @@ def linear_insert(model, target_model, keys, vals, d, KEY_ID, W_ITER=1000):
         # OK now fill in the learned weights and undo the hook.
         print("Weight shape", original_weight.shape)
         print("lambda param shape", lambda_param.shape)
-        print("direction shape", d.shape)
+        print("direction shape", d_og.shape)
         new_weight = original_weight + torch.einsum('godyx, di... -> goiyx', lambda_param, d_og)
         print("new weight shape", new_weight.shape)
         original_weight[...] = new_weight

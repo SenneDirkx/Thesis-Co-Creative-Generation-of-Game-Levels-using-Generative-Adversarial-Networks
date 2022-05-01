@@ -52,3 +52,45 @@ class GeneratorConv(nn.Module):
         x = self.main(x)
         x = gumbel_softmax(x, temp, hard)
         return x
+
+class Reshape(nn.Module):
+    def __init__(self, *args):
+        super(Reshape, self).__init__()
+        self.shape = args
+
+    def forward(self, x):
+        return x.view(self.shape)
+
+class GeneratorConv2(nn.Module):
+    def __init__(self, nz, temp):
+        super(GeneratorConv2, self).__init__()
+        self.nz = nz
+        n_nodes = 256*3*2
+        self.main = nn.Sequential(
+            nn.Linear(nz, n_nodes),
+            nn.LeakyReLU(0.05),
+            Reshape(-1, 256, 3, 2),
+            nn.ConvTranspose2d(256, 64, 3, 2, bias=False),
+            #nn.BatchNorm2d(64),
+            #nn.ReLU(True),
+            nn.LeakyReLU(0.05),
+            
+            nn.ConvTranspose2d(64, 10, (4,3), 2, bias=False),
+            #nn.BatchNorm2d(32),
+            #nn.ReLU(True),
+            #nn.LeakyReLU(0.2),
+            
+            #nn.ConvTranspose2d(32, 16, (2,2), 2, bias=False),
+            #nn.BatchNorm2d(16),
+            #nn.ReLU(True),
+            #nn.LeakyReLU(0.2),
+            
+            #nn.ConvTranspose2d(16, 10, (2,1), 2, bias=False),
+            #nn.Tanh()
+        )
+
+    def forward(self, x, temp, hard):
+        x = self.main(x)
+        y = gumbel_softmax(x, temp, hard)
+        z = F.softmax(x, dim=1)
+        return y, z

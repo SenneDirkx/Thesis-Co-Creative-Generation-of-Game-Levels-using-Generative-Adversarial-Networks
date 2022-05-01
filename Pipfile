@@ -15,6 +15,7 @@ sympy = "*"
 hiddenlayer = "*"
 graphviz = "*"
 pylon-lib = "*"
+semantic-loss-pytorch = {git = "https://github.com/lucadiliello/semantic-loss-pytorch.git"}
 
 [dev-packages]
 

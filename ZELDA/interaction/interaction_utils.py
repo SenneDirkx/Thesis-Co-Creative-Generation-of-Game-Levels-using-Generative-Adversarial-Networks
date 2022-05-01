@@ -101,13 +101,15 @@ def linear_insert(model, target_model, keys, vals, d_og, W_ITER=1000):
         #print("direction shape", d.shape)
         to_be_added = torch.einsum('godyx, di... -> goiyx', lambda_param, d_og)
         #print("einsum shape", to_be_added.shape)
-        hooked_module.weight = (original_weight + to_be_added).reshape(16, 64, 3, 2).permute(1, 0, 2, 3)
+        hooked_module.weight = (original_weight + to_be_added).reshape(ws[1], ws[2], ws[3], ws[4]).permute(1, 0, 2, 3)
         result = old_forward(x)
         return result
     hooked_module.forward = new_forward
 
     # when computing the loss, hook the weights to be modified by Lambda D
     def compute_loss():
+        print(key.shape)
+        print(target_model(key).shape)
         loss = torch.nn.functional.l1_loss(val, target_model(key))
         return loss
 
@@ -141,4 +143,4 @@ def linear_insert(model, target_model, keys, vals, d_og, W_ITER=1000):
         #hooked_module.register_parameter('weight', nn.Parameter(original_weight.reshape(16, 64, 3, 2).permute(1, 0, 2, 3)))
         hooked_module.forward = old_forward
     
-    return original_weight.reshape(16, 64, 3, 2).permute(1, 0, 2, 3)
+    return original_weight.reshape(ws[1], ws[2], ws[3], ws[4]).permute(1, 0, 2, 3)

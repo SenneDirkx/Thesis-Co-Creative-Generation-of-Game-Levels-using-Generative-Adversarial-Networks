@@ -10,13 +10,14 @@ to_pil_image = transforms.ToPILImage()
 nz = 128
 temperature = 1.0
 
-generator = GeneratorConv2(nz, temperature)
+generator = GeneratorConv(nz, temperature)
 generator.load_state_dict(torch.load("./rewritten_generator.pth"))
 generator.eval()
 
-for i in range(5):
-    rnd_input = torch.randn(1, nz)
-    result, _ = generator(rnd_input, temperature, False)
+for i in range(10):
+    #rnd_input = torch.randn(1, nz, 4, 4)
+    rnd_input = torch.load(f'./levels/generated/{i}/latent.pt')
+    result = generator(rnd_input, temperature, False)
     image = transform_to_image_format(result)
     image = make_grid(image)
     image = np.array(to_pil_image(image))

@@ -47,8 +47,12 @@ def edit_level(level):
         else:
             set_material_at_pos(new_level, 8, 14, w)
     
-    for w in [2,3, 7,8]:
-        for h in range(16):
+    for w in [2,8]:
+        for h in range(2,14):
+            set_material_at_pos(new_level, 2, h, w)
+    
+    for w in [3,7]:
+        for h in [2, 13]:
             set_material_at_pos(new_level, 2, h, w)
     
     return new_level

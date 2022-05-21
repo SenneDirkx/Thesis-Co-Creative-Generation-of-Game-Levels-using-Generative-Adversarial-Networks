@@ -2,7 +2,7 @@ import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from model_generator import GeneratorConv, GeneratorConv2, gumbel_softmax
+from model_generator import GeneratorConv, gumbel_softmax
 import numpy as np
 from utils import subsequence, make_loader, RunningSecondMoment, set_requires_grad
 import copy
@@ -12,15 +12,15 @@ from interaction_utils import estimate_v, linear_insert, og_insert
 
 KEY_ID = 0
 NB_KEYS = 10
-V_ITER = 100
-W_ITER = 100
+V_ITER = 10000
+W_ITER = 10000
 
 nz = 128
 temperature = 1.0
 
 print("Loading given generator...")
-generator = GeneratorConv2(nz, temperature)
-generator.load_state_dict(torch.load("./generator_final_v1.pth"))
+generator = GeneratorConv(nz, temperature)
+generator.load_state_dict(torch.load("./generator.pth"))
 generator.eval()
 
 target_layer = 3
@@ -84,8 +84,8 @@ z_arr = []
 for i in range(NB_KEYS):
     z_elem = torch.load(f'./levels/generated/{i}/latent.pt')
     z_arr.append(z_elem)
-print(z_arr[0].shape)
-z = torch.Tensor(NB_KEYS, z_arr[0].shape[1])
+
+z = torch.Tensor(NB_KEYS, z_arr[0].shape[1], z_arr[0].shape[2], z_arr[0].shape[3])
 torch.cat(z_arr, out=z)
 
 k = context_model(z).detach()
@@ -101,8 +101,7 @@ x = gumbel_softmax(rendering_model(v), temperature).detach()
 
 W0 = target_model[0].weight
 print("weights", W0.shape)
-LAYER_INPUT_SIZE = W0.shape[0]
-W0_flat = W0.reshape(W0.shape[0], -1).permute(1, 0)
+W0_flat = W0.reshape(64, -1).permute(1, 0)
 
 print("Calculating directions...")
 k_arr = []
@@ -110,12 +109,11 @@ d_arr = []
 d_og_arr = []
 for i in range(NB_KEYS):
     k_key = k[i][None,:]
-    print(k_key.shape)
     k_arr.append(k_key)
-    k_flat = k_key.permute(1, 0, 2, 3).reshape(-1, LAYER_INPUT_SIZE).permute(1, 0)
+    k_flat = k_key.permute(1, 0, 2, 3).reshape(-1, 64).permute(1, 0)
     d = torch.matmul(c_inverse, k_flat).detach()
     d.requires_grad = False
-    d_og = d.reshape(k_key.shape[1], k_key.shape[2], k_key.shape[3])[None, :]
+    d_og = d.reshape(64, 6, 5)[None, :]
     d_arr.append(d)
     d_og_arr.append(d_og)
 
@@ -162,9 +160,9 @@ torch.cat(v_new_arr, out=all_values)
 all_directions = torch.Tensor(NB_KEYS, d_og_arr[0].shape[1], d_og_arr[0].shape[2], d_og_arr[0].shape[3])
 torch.cat(d_og_arr, out=all_directions)
 
-print("k shape", all_keys.shape)
-print("v shape", all_values.shape)
-print("d shape", all_directions.shape)
+print(all_keys.shape)
+print(all_values.shape)
+print(all_directions.shape)
 
 print("Calculating new weights using (k*,v*) pairs...")
 

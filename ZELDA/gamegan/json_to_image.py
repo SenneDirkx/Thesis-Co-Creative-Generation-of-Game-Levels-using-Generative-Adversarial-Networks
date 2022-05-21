@@ -9,7 +9,7 @@ to_pil_image = transforms.ToPILImage()
 
 counter = 0
 num_lines = sum(1 for _ in open('level_output.json'))
-images = torch.zeros((num_lines, 3, 16, 11))
+images = torch.zeros((num_lines, 3, 16, 11), dtype=torch.uint8)
 with open('level_output.json', 'r') as level_output:
     
     for line in level_output:
@@ -21,19 +21,18 @@ with open('level_output.json', 'r') as level_output:
             for x in range(width):
                 tile = list_level[y][x]
                 if tile == 0:
-                    image[y,x] = torch.tensor([220,220,220])
+                    image[y,x] = torch.tensor([175,175,175], dtype=torch.uint8)
                 elif tile == 1:
-                    image[y,x] = torch.tensor((75,0,130))
+                    image[y,x] = torch.tensor((54, 29, 102), dtype=torch.uint8)
                 elif tile == 2:
-                    image[y,x] = torch.tensor((255,0,0))
+                    image[y,x] = torch.tensor((255, 0, 51), dtype=torch.uint8)
                 elif tile == 3:
-                    image[y,x] = torch.tensor((139,69,19))
+                    image[y,x] = torch.tensor((87, 25, 15), dtype=torch.uint8)
                 else:
-                    image[y,x] = (255,255,255)
+                    image[y,x] = torch.tensor((255,255,255), dtype=torch.uint8)
         images[counter] = image.permute(2,0,1)
         counter += 1
-        
-    
+      
 images = make_grid(images)
 images = np.array(to_pil_image(images))
 imageio.imsave('test.png', images)

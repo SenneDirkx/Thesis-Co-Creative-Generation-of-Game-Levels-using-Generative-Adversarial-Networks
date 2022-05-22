@@ -3,30 +3,13 @@
 # Each line of output is an array of 32 levels (which are arrays-of-arrays of integer tile ids)
 
 import torch
-import torchvision.utils as vutils
 from torch.autograd import Variable
 
 import sys
 import json
 import numpy
 import models
-import matplotlib.pyplot as plt
-import math
-
-import random
 from collections import OrderedDict
-
-def combine_images(generated_images):
-    num = generated_images.shape[0]
-    width = int(math.sqrt(num))
-    height = int(math.ceil(float(num)/width))
-    shape = generated_images.shape[1:]
-    image = numpy.zeros((height*shape[0], width*shape[1],shape[2]), dtype=generated_images.dtype)
-    for index, img in enumerate(generated_images):
-        i = int(index/width)
-        j = index % width
-        image[i*shape[0]:(i+1)*shape[0], j*shape[1]:(j+1)*shape[1]] = img
-    return image
 
 if __name__ == '__main__':
     
@@ -89,30 +72,6 @@ if __name__ == '__main__':
         # Load the parameters with the fixed labels  
         generator.load_state_dict(fixedModel)
 
-    testing = False
-
-    if testing:  
-        line = []
-        for i in range (batchSize):
-            line.append( [ random.uniform(-1.0, 1.0) ]*nz )
-
-        #This is the format that we expect from sys.stdin
-        print(line)
-        line = json.dumps(line)
-        lv = numpy.array(json.loads(line))
-        latent_vector = torch.FloatTensor( lv ).view(batchSize, nz, 1, 1) #torch.from_numpy(lv)# torch.FloatTensor( torch.from_numpy(lv) )
-        #latent_vector = numpy.array(json.loads(line))
-        levels = generator(Variable(latent_vector, volatile=True))
-        im = levels.data.cpu().numpy()
-        im = im[:,:,:out_height,:out_width] #Cut off rest to fit the 14x28 tile dimensions
-        im = numpy.argmax( im, axis = 1)
-        #print(json.dumps(levels.data.tolist()))
-        print("Saving to file ")
-        im = ( plt.get_cmap('rainbow')( im/float(z_dims) ) )
-
-        plt.imsave('fake_sample.png', combine_images(im) )
-
-        exit()
 
     generated_levels = []
 

@@ -1,7 +1,8 @@
 import numpy as np
 import json
+import sys
 
-NB_LEVELS = 16
+NB_LEVELS = int(sys.argv[1])
 
 with open('latent_input.txt', 'w') as latent_input:
     for i in range(NB_LEVELS):

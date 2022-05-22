@@ -6,7 +6,9 @@ from torchvision.utils import make_grid
 import torchvision.transforms as transforms
 import imageio
 to_pil_image = transforms.ToPILImage()
+import sys
 
+file_output = sys.argv[1]
 counter = 0
 num_lines = sum(1 for _ in open('level_output.json'))
 images = torch.zeros((num_lines, 3, 16, 11), dtype=torch.uint8)
@@ -35,7 +37,7 @@ with open('level_output.json', 'r') as level_output:
       
 images = make_grid(images)
 images = np.array(to_pil_image(images))
-imageio.imsave('test.png', images)
+imageio.imsave(file_output, images)
 
 
 

@@ -18,10 +18,9 @@ if __name__ == '__main__':
     z_dims = int(sys.argv[3])
     out_width = int(sys.argv[4])
     out_height = int(sys.argv[5])
-    if len(sys.argv)<=6:
-        num_classes = -1
-    else: 
-        num_classes = int(sys.argv[6])
+
+    load_path = sys.argv[6]
+    save_path = sys.argv[7]
 
 #    if z_dims == 4 : # Assume this is Zelda (4 tiles, currently)
 #        out_height = 16
@@ -108,5 +107,5 @@ if __name__ == '__main__':
 
                 # [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 3, 3, 3, 1, 1, 1, 1], [1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1], [1, 1, 0, 2, 0, 2, 0, 2, 0, 1, 1], [1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1], [1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1], [1, 1, 0, 2, 0, 2, 0, 2, 0, 1, 1], [1, 3, 0, 0, 0, 0, 0, 0, 0, 3, 1], [1, 3, 0, 0, 0, 0, 0, 0, 0, 3, 1], [1, 1, 0, 2, 0, 2, 0, 2, 0, 1, 1], [1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1], [1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1], [1, 1, 0, 2, 0, 2, 0, 2, 0, 1, 1], [1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1], [1, 1, 1, 1, 3, 3, 3, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]
 
-        with open('level_output.json', 'w') as level_output:
+        with open(save_path, 'w') as level_output:
             level_output.writelines(map(lambda x: x + "\n", generated_levels))

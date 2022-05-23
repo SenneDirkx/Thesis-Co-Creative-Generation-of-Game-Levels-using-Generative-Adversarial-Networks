@@ -8,11 +8,12 @@ import imageio
 to_pil_image = transforms.ToPILImage()
 import sys
 
-file_output = sys.argv[1]
+file_input = sys.argv[1]
+file_output = sys.argv[2]
 counter = 0
-num_lines = sum(1 for _ in open('level_output.json'))
+num_lines = sum(1 for _ in open(file_input))
 images = torch.zeros((num_lines, 3, 16, 11), dtype=torch.uint8)
-with open('level_output.json', 'r') as level_output:
+with open(file_input, 'r') as level_output:
     
     for line in level_output:
         list_level = json.loads(line)

@@ -23,6 +23,10 @@ NB_KEYS = int(sys.argv[6])
 V_ITER = int(sys.argv[7])
 W_ITER = int(sys.argv[8])
 C_SIZE = int(sys.argv[9])
+#CHOSEN_LAYER = int(sys.argv[12])
+
+latent_path = sys.argv[10]
+edited_path = sys.argv[11]
 
 batchSize = 1
 imageSize = 32
@@ -118,7 +122,7 @@ c_inverse = torch.inverse(c_matrix)
 print("Loading given key examples...")
 #z = torch.randn(NB_KEYS, nz, 4, 4)
 z_arr = []
-with open('./latent_input.txt', 'r') as latent_input:
+with open(latent_path, 'r') as latent_input:
     counter = 0
 
     for line in latent_input:
@@ -138,8 +142,6 @@ k.requires_grad = False
 #print("k* shape", k.shape)
 v = target_model(k).detach()
 #print("v shape", v.shape)
-v_flat = v.view(-1)
-#x = rendering_model(v).detach()
 
 #k_summed = k.sum(3).sum(2)
 #print("k summed shape", k_summed.shape)
@@ -177,7 +179,7 @@ print("Find v* of given keys...")
 v_new_arr = []
 x_edited_arr = []
 
-with open('./level_output.json', 'r') as level_output:
+with open(edited_path, 'r') as level_output:
     counter = 0
     for line in level_output:
         if counter >= NB_KEYS:
@@ -192,18 +194,15 @@ with open('./level_output.json', 'r') as level_output:
 for j in range(NB_KEYS):
     print(f"-> Find v* of {j+1}th key...")
     v_key = v[i][None,:]
-    v_new = estimate_v(rendering_model, v_key, x_edited_arr[i], out_width, out_height, V_ITER)
+    v_new = estimate_v(rendering_model, v_key, x_edited_arr[i], out_width, out_height, V_ITER, plot=False)
     v_new_arr.append(v_new)
 
-#print('v_sum', v_sum)
-#print('x_diff_begin', x_diff_begin)
-#print('x_diff_opt', x_diff_opt)
+#all_x_edited = torch.Tensor(NB_KEYS, x_edited_arr[0].shape[1], x_edited_arr[0].shape[2], x_edited_arr[0].shape[3])
+#torch.cat(x_edited_arr, out=all_x_edited)
 
-#plt.figure()
-#plt.title("V losses")
-#plt.plot(v_losses)
-#plt.show()
-assert len(k_arr) != 0 and len(v_new_arr) != 0 and len(d_og_arr) != 0
+#v_new = estimate_v(rendering_model, v, all_x_edited, out_width, out_height, V_ITER, plot=True)
+
+#assert len(k_arr) != 0 and len(v_new_arr) != 0 and len(d_og_arr) != 0
 
 print("Merging all keys, values and directions into tensors...")
 
@@ -212,6 +211,7 @@ torch.cat(k_arr, out=all_keys)
 
 all_values = torch.Tensor(NB_KEYS, v_new_arr[0].shape[1], v_new_arr[0].shape[2], v_new_arr[0].shape[3])
 torch.cat(v_new_arr, out=all_values)
+#all_values = v_new
 
 all_directions = torch.Tensor(NB_KEYS, d_og_arr[0].shape[1], d_og_arr[0].shape[2], d_og_arr[0].shape[3])
 torch.cat(d_og_arr, out=all_directions)
@@ -223,10 +223,11 @@ print(all_directions.shape)
 print("Calculating new weights using (k*,v*) pairs...")
 
 #weight = og_insert()
-weight = linear_insert(model, target_model, all_keys, all_values, all_directions, W_ITER)
+weight = linear_insert(model, target_model, all_keys, all_values, all_directions, W_ITER, plot=True)
 #print(weight.shape)
 
 print("Rewriting model...")
+print(model.main[target_layer])
 model.main[target_layer].register_parameter('weight', nn.Parameter(weight))
 torch.save(model.state_dict(), './rewritten_generator.pth')
 

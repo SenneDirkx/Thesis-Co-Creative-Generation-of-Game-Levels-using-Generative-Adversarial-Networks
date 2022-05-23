@@ -1,11 +1,15 @@
 import torch.nn as nn
+import torch.nn.functional as F
 import torch
 import copy
 import matplotlib.pyplot as plt
 from interaction_utils.general import set_requires_grad
 
-def estimate_v(rendering_model, start_v, x_edited, out_width, out_height, V_ITER=1000):
+def estimate_v(rendering_model, start_v, x_edited, out_width, out_height, V_ITER=1000, plot=False):
     # maybe also l1 loss??
+    #print("render output", rendering_model(start_v)[:, :, :out_height, :out_width])
+    #print("edited", x_edited)
+
     criterion = nn.MSELoss()
     def compute_loss_v(x_cur):
         return criterion(x_cur,x_edited)
@@ -15,13 +19,20 @@ def estimate_v(rendering_model, start_v, x_edited, out_width, out_height, V_ITER
         v_new = torch.clone(start_v)
     #v_og = torch.clone(v_new)
     v_new.requires_grad = True
-    v_opt = torch.optim.Adam([v_new], 0.01)
+    v_opt = torch.optim.Adam([v_new], lr=0.001)
     v_losses = []
     for _ in range(V_ITER):
         with torch.enable_grad():
-            x_current = rendering_model(v_new)[:, :, :out_height, :out_width]
+            x_current = rendering_model(v_new)
+            x_current = x_current[:, :, :out_height, :out_width]
+            #a = x_current.argmax(axis = 1)
+            #x_onehotted = torch.zeros(x_current.shape).scatter(1, a.unsqueeze(1), 1.0)
+            
+            ret = F.gumbel_softmax(x_current, tau=1, hard=True, dim=1)
+            #print(ret.shape)
+            #print(ret[0,:,10,10])
             #print(x_current.shape)
-            loss = compute_loss_v(x_current)
+            loss = compute_loss_v(ret)
             v_opt.zero_grad()
             loss.backward()
             v_losses.append(loss.detach())
@@ -30,6 +41,11 @@ def estimate_v(rendering_model, start_v, x_edited, out_width, out_height, V_ITER
     #v_sum = criterion(v_og, v_new)
     #x_diff_begin = criterion(gumbel_softmax(rendering_model(v_og), temperature),x_edited)
     #x_diff_opt = criterion(gumbel_softmax(rendering_model(v_new), temperature), x_edited)
+    if plot:
+        plt.figure()
+        plt.title("V losses")
+        plt.plot(v_losses)
+        plt.show()
 
     v_new.requires_grad = False
     return v_new
@@ -76,7 +92,7 @@ def og_insert(target_model, k, v_new, W_ITER=1000):
     plt.show()
     return weight
 
-def linear_insert(model, target_model, keys, vals, d_og, W_ITER=1000):
+def linear_insert(model, target_model, keys, vals, d_og, W_ITER=1000, plot=False):
     set_requires_grad(False, model)
     key, val = keys.detach(), vals.detach()
     key.requires_grad = False
@@ -115,20 +131,26 @@ def linear_insert(model, target_model, keys, vals, d_og, W_ITER=1000):
 
     # run the optimizer
     params = [lambda_param]
-    optimizer = torch.optim.Adam(params, lr=0.01)
+    optimizer = torch.optim.Adam(params, lr=0.0001)
     losses = []
+    counter = 100
     for _ in range(W_ITER):
         with torch.enable_grad():
             loss = compute_loss()
             optimizer.zero_grad()
             loss.backward()
+            if counter == 0:
+                print("loss:", loss.detach())
+                counter = 100
             losses.append(loss.detach())
             optimizer.step()
+            counter -= 1
     
-    plt.figure()
-    plt.title("Weights losses")
-    plt.plot(losses)
-    plt.show()
+    if plot:
+        plt.figure()
+        plt.title("Weights losses")
+        plt.plot(losses)
+        plt.show()
 
     with torch.no_grad():
         # OK now fill in the learned weights and undo the hook.

@@ -2,9 +2,10 @@ import numpy as np
 import json
 import sys
 
-NB_LEVELS = int(sys.argv[1])
+filename = sys.argv[1]
+NB_LEVELS = int(sys.argv[2])
 
-with open('latent_input.txt', 'w') as latent_input:
+with open(filename, 'w') as latent_input:
     for i in range(NB_LEVELS):
         latent = np.random.rand(1,10,1,1) * 2 - 1
         latent_list = latent.tolist()

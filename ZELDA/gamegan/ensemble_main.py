@@ -13,7 +13,7 @@ from collections import OrderedDict
 
 if __name__ == '__main__':
     
-    modelToLoad = sys.argv[1]
+    nb_models = int(sys.argv[1])
     nz = int(sys.argv[2])
     z_dims = int(sys.argv[3])
     out_width = int(sys.argv[4])
@@ -44,32 +44,34 @@ if __name__ == '__main__':
     ngpu = 1
     n_extra_layers = 0
 
-   
-    generator = models.DCGAN_G(imageSize, nz, z_dims, ngf, ngpu, n_extra_layers)
-    #print(generator.state_dict()) 
-    # This is a state dictionary that might have deprecated key labels/names
-    deprecatedModel = torch.load(modelToLoad, map_location=lambda storage, loc: storage)
-    #print(deprecatedModel)
-    # Make new model with weights/parameters from deprecatedModel but labels/keys from generator.state_dict()
-    fixedModel = OrderedDict()
-    for (goodKey,ignore) in generator.state_dict().items():
-        # Take the good key and replace the : with . in order to get the deprecated key so the associated value can be retrieved
-        badKey = goodKey.replace(":",".")
-        #print(goodKey)
-        #print(badKey)
-        # Some parameter settings of the generator.state_dict() are not actually part of the saved models
-        if badKey in deprecatedModel:
-            goodValue = deprecatedModel[badKey]
-            fixedModel[goodKey] = goodValue
+    generators = [models.DCGAN_G(imageSize, nz, z_dims, ngf, ngpu, n_extra_layers) for _ in range(nb_models)]
 
-    if not fixedModel:
-        #print("LOAD REGULAR")
+    for g in range(nb_models):
+
+        #print(generator.state_dict()) 
+        # This is a state dictionary that might have deprecated key labels/names
+        deprecatedModel = torch.load(f'./ensemble/rewritten_gen_{g}.pth', map_location=lambda storage, loc: storage)
         #print(deprecatedModel)
-        # If the fixedModel was empty, then the model was trained with the new labels, and the regular load process is fine
-        generator.load_state_dict(deprecatedModel)
-    else:
-        # Load the parameters with the fixed labels  
-        generator.load_state_dict(fixedModel)
+        # Make new model with weights/parameters from deprecatedModel but labels/keys from generator.state_dict()
+        fixedModel = OrderedDict()
+        for (goodKey,ignore) in generators[g].state_dict().items():
+            # Take the good key and replace the : with . in order to get the deprecated key so the associated value can be retrieved
+            badKey = goodKey.replace(":",".")
+            #print(goodKey)
+            #print(badKey)
+            # Some parameter settings of the generator.state_dict() are not actually part of the saved models
+            if badKey in deprecatedModel:
+                goodValue = deprecatedModel[badKey]
+                fixedModel[goodKey] = goodValue
+
+        if not fixedModel:
+            #print("LOAD REGULAR")
+            #print(deprecatedModel)
+            # If the fixedModel was empty, then the model was trained with the new labels, and the regular load process is fine
+            generators[g].load_state_dict(deprecatedModel)
+        else:
+            # Load the parameters with the fixed labels  
+            generators[g].load_state_dict(fixedModel)
 
 
     generated_levels = []
@@ -86,22 +88,26 @@ if __name__ == '__main__':
                 
                 # Standard GAN. Input is just latent vector
                 lv = numpy.array(json.loads(line))
-                latent_vector = torch.FloatTensor( lv ).view(batchSize, nz, 1, 1) 
-                levels = generator(Variable(latent_vector))
+                latent_vector = torch.FloatTensor( lv ).view(batchSize, nz, 1, 1)
 
-                #levels.data = levels.data[:,:,:14,:28] #Cut of rest to fit the 14x28 tile dimensions
-                levels.data = levels.data[:, :, :out_height, :out_width]
-                #vutils.save_image(levels.data, "test.png")
-                levels  = levels.data.cpu().numpy()
-                #Cut of rest to fit the 14x28 tile dimensions
-                levels = numpy.argmax(levels, axis = 1)
+                ensemble_levels = numpy.zeros((1, z_dims, out_height, out_width))
+                for gen in generators:
+                    levels = gen(Variable(latent_vector))
+
+                    #levels.data = levels.data[:,:,:14,:28] #Cut of rest to fit the 14x28 tile dimensions
+                    levels.data = levels.data[:, :, :out_height, :out_width]
+                    #vutils.save_image(levels.data, "test.png")
+                    levels  = levels.data.cpu().numpy()
+                    ensemble_levels += levels
+                    #Cut of rest to fit the 14x28 tile dimensions
+                ensemble_levels = numpy.argmax(ensemble_levels, axis = 1)
                 
         
                 #levels.data[levels.data > 0.] = 1  #SOLID BLOCK
                 #levels.data[levels.data < 0.] = 2  #EMPTY TILE
 
                 # Jacob: Only output first level, since we are only really evaluating one at a time
-                generated_levels.append(json.dumps(levels[0].tolist()))
+                generated_levels.append(json.dumps(ensemble_levels[0].tolist()))
 
                 # [[[[1]], [[1]], [[1]], [[1]], [[1]], [[1]], [[1]], [[1]], [[1]], [[1]]]]
 

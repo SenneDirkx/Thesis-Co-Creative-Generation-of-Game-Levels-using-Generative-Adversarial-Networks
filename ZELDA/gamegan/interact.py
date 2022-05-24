@@ -13,6 +13,9 @@ from collections import OrderedDict
 from torchsummary import summary
 import json
 
+PLOT_V = False
+PLOT_R = True
+
 modelToLoad = sys.argv[1]
 nz = int(sys.argv[2])
 z_dims = int(sys.argv[3])
@@ -23,7 +26,6 @@ NB_KEYS = int(sys.argv[6])
 V_ITER = int(sys.argv[7])
 W_ITER = int(sys.argv[8])
 C_SIZE = int(sys.argv[9])
-#CHOSEN_LAYER = int(sys.argv[12])
 
 latent_path = sys.argv[10]
 edited_path = sys.argv[11]
@@ -33,6 +35,26 @@ imageSize = 32
 ngf = 64
 ngpu = 1
 n_extra_layers = 0
+
+# 1 2 3 of 4
+CHOSEN_LAYER = int(sys.argv[12])
+# 4 CONV layers (index 0, 3, 6, 9)
+# Output sizes (256, 4, 4) (128, 8, 8) (64, 16, 16) (4, 32, 32)
+# Names: initial:10-256:convt, pyramid:256-128:convt, pyramid:128-64:convt, final:64-4:convt
+target_layer_options = [0, 3, 6, 9]
+layername_options = ['initial:10-256:convt', 'pyramid:256-128:convt', 'pyramid:128-64:convt', 'final:64-4:convt']
+target_layer = target_layer_options[CHOSEN_LAYER-1]
+firstlayer = layername_options[CHOSEN_LAYER-1]
+lastlayer = layername_options[CHOSEN_LAYER-1]
+
+output_gen_path = sys.argv[13]
+ensemble_key_i = None
+try:
+    ensemble_key_i = int(sys.argv[14])
+    PLOT_R = False
+    print("Part of an ensemble")
+except:
+    print("No ensemble")
 
 print("Loading given generator...")
 
@@ -59,14 +81,6 @@ else:
 generator.eval()
 
 # summary(generator, (10,1,1)) 
-# 4 CONV layers (index 0, 3, 6, 9)
-# Output sizes (256, 4, 4) (128, 8, 8) (64, 16, 16) (4, 32, 32)
-
-# Names: initial:10-256:convt, pyramid:256-128:convt, pyramid:128-64:convt, final:64-4:convt
-
-target_layer = 6
-firstlayer = f'pyramid:128-64:convt'
-lastlayer = f'pyramid:128-64:convt'
 
 model = copy.deepcopy(generator)
 
@@ -95,8 +109,11 @@ if isinstance(first_layer, (torch.nn.Conv2d, torch.nn.ConvTranspose2d)):
     depth = first_layer.in_channels
     rng = np.random.RandomState(seed)
     zds = torch.from_numpy(
-        rng.standard_normal(size * depth * 16)
-        .reshape(size, depth, 4, 4)).float()
+        rng.standard_normal(size * depth)
+        .reshape(size, depth)).float()[:, :, None, None]
+    #zds = torch.from_numpy(
+    #    rng.standard_normal(size * depth * 16)
+    #    .reshape(size, depth, 4, 4)).float()
 else:
     depth = first_layer.in_features
     rng = np.random.RandomState(seed)
@@ -111,7 +128,9 @@ with torch.no_grad():
     loader = make_loader(zds, None, 10)
     r2mom = RunningSecondMoment()
     for batch in loader:
+        #print(batch[0].shape)
         acts = context_model(batch[0])
+        #print(acts.shape)
         sample = acts.permute(0, 2, 3, 1).reshape(-1, acts.shape[1])
         r2mom.add(sample)
     
@@ -134,6 +153,17 @@ with open(latent_path, 'r') as latent_input:
         z_arr.append(z_elem)
         counter += 1
 
+if ensemble_key_i is not None:
+    z_arr = [z_arr[ensemble_key_i]]
+
+upscaled = False
+if len(z_arr) == 1:
+    upscale = 10
+    print(f"PROVIDED ONLY 1 SAMPLE, UPSCALING TO {upscale}")
+    z_arr = [z_arr[0] for _ in range(upscale)]
+    NB_KEYS = upscale
+    upscaled = True
+
 z = torch.Tensor(NB_KEYS, z_arr[0].shape[1], z_arr[0].shape[2], z_arr[0].shape[3])
 torch.cat(z_arr, out=z)
 
@@ -155,7 +185,7 @@ print("Calculating directions...")
 k_arr = []
 d_arr = []
 d_og_arr = []
-for i in range(NB_KEYS):
+for i in range(k.shape[0]):
     k_key = k[i][None,:]
     #print(k_key.shape)
     k_arr.append(k_key)
@@ -191,10 +221,16 @@ with open(edited_path, 'r') as level_output:
         x_edited_arr.append(x_edited)
         counter += 1
 
-for j in range(NB_KEYS):
+if ensemble_key_i is not None:
+    x_edited_arr = [x_edited_arr[ensemble_key_i]]
+
+if upscaled:
+    x_edited_arr = [x_edited_arr[0] for _ in range(upscale)]
+
+for j in range(v.shape[0]):
     print(f"-> Find v* of {j+1}th key...")
     v_key = v[i][None,:]
-    v_new = estimate_v(rendering_model, v_key, x_edited_arr[i], out_width, out_height, V_ITER, plot=False)
+    v_new = estimate_v(rendering_model, v_key, x_edited_arr[i], out_width, out_height, V_ITER, plot=PLOT_V)
     v_new_arr.append(v_new)
 
 #all_x_edited = torch.Tensor(NB_KEYS, x_edited_arr[0].shape[1], x_edited_arr[0].shape[2], x_edited_arr[0].shape[3])
@@ -206,14 +242,14 @@ for j in range(NB_KEYS):
 
 print("Merging all keys, values and directions into tensors...")
 
-all_keys = torch.Tensor(NB_KEYS, k_arr[0].shape[1], k_arr[0].shape[2], k_arr[0].shape[3])
+all_keys = torch.Tensor(k.shape[0], k_arr[0].shape[1], k_arr[0].shape[2], k_arr[0].shape[3])
 torch.cat(k_arr, out=all_keys)
 
-all_values = torch.Tensor(NB_KEYS, v_new_arr[0].shape[1], v_new_arr[0].shape[2], v_new_arr[0].shape[3])
+all_values = torch.Tensor(v.shape[0], v_new_arr[0].shape[1], v_new_arr[0].shape[2], v_new_arr[0].shape[3])
 torch.cat(v_new_arr, out=all_values)
 #all_values = v_new
 
-all_directions = torch.Tensor(NB_KEYS, d_og_arr[0].shape[1], d_og_arr[0].shape[2], d_og_arr[0].shape[3])
+all_directions = torch.Tensor(k.shape[0], d_og_arr[0].shape[1], d_og_arr[0].shape[2], d_og_arr[0].shape[3])
 torch.cat(d_og_arr, out=all_directions)
 
 print(all_keys.shape)
@@ -223,12 +259,12 @@ print(all_directions.shape)
 print("Calculating new weights using (k*,v*) pairs...")
 
 #weight = og_insert()
-weight = linear_insert(model, target_model, all_keys, all_values, all_directions, W_ITER, plot=True)
+weight = linear_insert(model, target_model, all_keys, all_values, all_directions, W_ITER, plot=PLOT_R)
 #print(weight.shape)
 
 print("Rewriting model...")
 print(model.main[target_layer])
 model.main[target_layer].register_parameter('weight', nn.Parameter(weight))
-torch.save(model.state_dict(), './rewritten_generator.pth')
+torch.save(model.state_dict(), output_gen_path)
 
 # print("DONE!")

@@ -109,6 +109,8 @@ def linear_insert(model, target_model, keys, vals, d_og, W_ITER=1000, plot=False
         ws[0], ws[1], d_og.shape[0],
         ws[3], ws[4], device=original_weight.device,
         requires_grad=True)
+    print(lambda_param.shape)
+    print(d_og.shape)
     old_forward = hooked_module.forward
 
     def new_forward(x):
@@ -117,6 +119,7 @@ def linear_insert(model, target_model, keys, vals, d_og, W_ITER=1000, plot=False
         #print("lambda param shape", lambda_param.shape)
         #print("direction shape", d.shape)
         to_be_added = torch.einsum('godyx, di... -> goiyx', lambda_param, d_og)
+        #to_be_added = lambda_param
         #print("einsum shape", to_be_added.shape)
         #hooked_module.weight = (original_weight + to_be_added).reshape(16, 64, 3, 2).permute(1, 0, 2, 3)
         hooked_module.weight = (original_weight + to_be_added).reshape(ws[1], ws[2], ws[3], ws[4]).permute(1, 0, 2, 3)
@@ -131,9 +134,9 @@ def linear_insert(model, target_model, keys, vals, d_og, W_ITER=1000, plot=False
 
     # run the optimizer
     params = [lambda_param]
-    optimizer = torch.optim.Adam(params, lr=0.0001)
+    optimizer = torch.optim.Adam(params, lr=0.00001)
     losses = []
-    counter = 100
+    counter = 0
     for _ in range(W_ITER):
         with torch.enable_grad():
             loss = compute_loss()
@@ -141,7 +144,7 @@ def linear_insert(model, target_model, keys, vals, d_og, W_ITER=1000, plot=False
             loss.backward()
             if counter == 0:
                 print("loss:", loss.detach())
-                counter = 100
+                counter = 10
             losses.append(loss.detach())
             optimizer.step()
             counter -= 1
@@ -166,3 +169,89 @@ def linear_insert(model, target_model, keys, vals, d_og, W_ITER=1000, plot=False
         hooked_module.forward = old_forward
     
     return original_weight.reshape(ws[1], ws[2], ws[3], ws[4]).permute(1, 0, 2, 3)
+
+def linear_insert_fixed(target_model, key, val, context, W_ITER=1000, plot=False, lr=0.001):
+    
+    key, val = [d.detach() for d in [key, val]]
+    original_weight = [p for n, p in target_model.named_parameters() if 'weight' in n][0]
+    hooked_module = [module for module in target_model.modules() if getattr(module, 'weight', None) is original_weight][0]
+    del hooked_module._parameters['weight']
+    ws = original_weight.shape
+    print("ws", ws)
+    lambda_param = torch.zeros(
+        ws[1], context.shape[0],
+        ws[2], ws[3], device=original_weight.device,
+        requires_grad=True)
+    print("ls", lambda_param.shape)
+    print("cs", context.shape)
+    old_forward = hooked_module.forward
+
+    def new_forward(x):
+        # weight_1 = weight_0 + Lambda D
+        new_weight = torch.einsum('odyx, di -> oiyx', lambda_param, context).permute(1,0,2,3)
+        #print("nws", new_weight.shape)
+        hooked_module.weight = (original_weight + new_weight)
+        result = old_forward(x)
+        return result
+    hooked_module.forward = new_forward
+
+    # when computing the loss, hook the weights to be modified by Lambda D
+    def compute_loss():
+        loss = torch.nn.functional.l1_loss(val, target_model(key))
+        return loss
+
+    # run the optimizer
+    params = [lambda_param]
+    optimizer = torch.optim.Adam(params, lr=lr)
+    for it in range(W_ITER):
+        with torch.enable_grad():
+            loss = compute_loss()
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            if it == W_ITER-1:
+                print("LOSS", loss)
+    with torch.no_grad():
+        # OK now fill in the learned weights and undo the hook.
+        new_weight = torch.einsum('odyx, di -> oiyx', lambda_param, context).permute(1,0,2,3)
+
+        original_weight[...] = (original_weight + new_weight)
+        del hooked_module.weight
+        hooked_module.register_parameter('weight', original_weight)
+        hooked_module.forward = old_forward
+
+
+def normal_insert_fixed(target_model, key, val, context, W_ITER=1000, P_ITER=10, lr=0.05):
+    # print('inserting keys %s' % list(key.keys()))
+    key, val = [d.detach() for d in [key, val]]
+
+    LOW_RANK_INSERT = True
+
+    def compute_loss():
+        return torch.nn.functional.l1_loss(val, target_model(key))
+    # set up optimizer
+    weight = [p for n, p in target_model.named_parameters() if 'weight' in n][0]
+    params = [weight]
+    if LOW_RANK_INSERT:
+        # The assumption now is that context is orthonormal.
+        with torch.no_grad():
+            ortho_weight = weight - projected_conv(weight, context)
+    optimizer = torch.optim.Adam(params, lr=lr)
+
+    for it in range(W_ITER):
+        with torch.enable_grad():
+            loss = compute_loss()
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            print(it, loss)
+            # Project to rank-one over context direction
+            if LOW_RANK_INSERT and (it % P_ITER == 0 or it == W_ITER - 1):
+                with torch.no_grad():
+                    weight[...] = (
+                        ortho_weight + projected_conv(weight, context))
+
+def projected_conv(weight, direction):
+    cosine_map = torch.einsum('oiyx, di -> odyx', weight.permute(1,0,2,3), direction)
+    result = torch.einsum('odyx, di -> oiyx', cosine_map, direction).permute(1,0,2,3)
+    return result

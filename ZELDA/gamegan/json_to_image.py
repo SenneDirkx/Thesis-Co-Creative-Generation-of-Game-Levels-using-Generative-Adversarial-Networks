@@ -24,13 +24,13 @@ with open(file_input, 'r') as level_output:
             for x in range(width):
                 tile = list_level[y][x]
                 if tile == 0:
-                    image[y,x] = torch.tensor([175,175,175], dtype=torch.uint8)
+                    image[y,x] = torch.tensor([178,216,216], dtype=torch.uint8)
                 elif tile == 1:
-                    image[y,x] = torch.tensor((54, 29, 102), dtype=torch.uint8)
+                    image[y,x] = torch.tensor((0,128,128), dtype=torch.uint8)
                 elif tile == 2:
-                    image[y,x] = torch.tensor((255, 0, 51), dtype=torch.uint8)
+                    image[y,x] = torch.tensor((17, 48, 143), dtype=torch.uint8)
                 elif tile == 3:
-                    image[y,x] = torch.tensor((87, 25, 15), dtype=torch.uint8)
+                    image[y,x] = torch.tensor((74, 41, 23), dtype=torch.uint8)
                 else:
                     image[y,x] = torch.tensor((255,255,255), dtype=torch.uint8)
         images[counter] = image.permute(2,0,1)

@@ -37,9 +37,9 @@ class ZeldaLevelDataset(Dataset):
         return levels
 
 def transform_to_image_format(level):
-    colorMap = torch.tensor([[0.69,0.3, 0.8,0,   0.06,0.08,0.52,0.3, 0.26,0],
-                            [0.69,1,   0,  0.14,0.12,0.94,0.13,0.52,0.14,0],
-                            [0.69,1,   0.1,0.8 ,0.35,0.33,0.08,0.08,0.31,0]]).transpose(0,1)
+    colorMap = torch.tensor([[0.11,0.48,0.48,0.05,0.05,0.05,0.29,0.48,0.48,0],
+                             [0.75,0.2, 0.2, 0.15,0.15,0.15,0.16,0.2, 0.2, 0],
+                             [0.54,0.93,0.93,0.58,0.68,0.68,0.09,0.93,0.93,0]]).transpose(0,1)
     permuted_level = level.permute(0,2,3,1)
     
     colored_permuted_level = torch.matmul(permuted_level,colorMap)

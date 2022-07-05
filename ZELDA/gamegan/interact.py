@@ -80,7 +80,8 @@ else:
 
 generator.eval()
 
-# summary(generator, (10,1,1)) 
+summary(generator, (10,1,1))
+sys.exit(0)
 
 model = copy.deepcopy(generator)
 

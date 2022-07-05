@@ -227,7 +227,8 @@ for i in range(context_k.shape[0]):
 
 
 print("Calculate v* of given key...")
-#sys.exit(0)
+summary(model)
+sys.exit(0)
 
 if COPY_MODE == 'full':
     copy_mask = torch.ones((1, 1, out_height, out_width), dtype=torch.float32)

@@ -55,6 +55,11 @@ firstlayer = layername_options[CHOSEN_LAYER-1]
 lastlayer = layername_options[CHOSEN_LAYER-1]
 
 output_gen_path = sys.argv[16]
+DRANK = int(sys.argv[17])
+LR = float(sys.argv[18])
+
+# full, inplace, moving
+COPY_MODE = 'inplace'
 
 print("Loading given generator...")
 
@@ -191,7 +196,14 @@ d_arr = []
 d_og_arr = []
 for i in range(context_k.shape[0]):
     k_key = context_k[i][None,:]
-    k_context_mask = torch.zeros((1, 1, out_height, out_width), dtype=torch.float32)
+
+    if COPY_MODE == 'full':
+        k_context_mask = torch.ones((1, 1, out_height, out_width), dtype=torch.float32)
+    else:
+        k_context_mask = torch.zeros((1, 1, out_height, out_width), dtype=torch.float32)
+
+    ### TESTING
+
     #print( "bounds",context_bounds[i*4],context_bounds[i*4+1],context_bounds[i*4+2], context_bounds[i*4+3])
     for mi in range(out_height):
         for mj in range(out_width):
@@ -217,42 +229,50 @@ for i in range(context_k.shape[0]):
 print("Calculate v* of given key...")
 #sys.exit(0)
 
-#copy_mask = torch.zeros((1, 1, out_height, out_width), dtype=torch.float32)
-#paste_mask = torch.zeros((1, 1, out_height, out_width), dtype=torch.float32)
-copy_mask = torch.ones((1, 1, out_height, out_width), dtype=torch.float32)
-paste_mask = torch.ones((1, 1, out_height, out_width), dtype=torch.float32)
+if COPY_MODE == 'full':
+    copy_mask = torch.ones((1, 1, out_height, out_width), dtype=torch.float32)
+    paste_mask = torch.ones((1, 1, out_height, out_width), dtype=torch.float32)
+else:
+    copy_mask = torch.zeros((1, 1, out_height, out_width), dtype=torch.float32)
+    paste_mask = torch.zeros((1, 1, out_height, out_width), dtype=torch.float32)
 
-#for mi in range(out_height):
-#    for mj in range(out_width):
-#        if mi >= t_c and mi <= b_c and mj >= l_c and mj <= r_c:
-#            copy_mask[0, 0, mi, mj] = 1
-#        if mi >= t_p and mi <= b_p and mj >= l_p and mj <= r_p:
-#            paste_mask[0, 0, mi, mj] = 1
-interpolated_k_paste_mask = cp_utils.extract_interpolated_mask(paste_mask, paste_k.shape[2:])
+
+for mi in range(out_height):
+    for mj in range(out_width):
+        if mi >= t_c and mi <= b_c and mj >= l_c and mj <= r_c:
+            copy_mask[0, 0, mi, mj] = 1
+        if mi >= t_p and mi <= b_p and mj >= l_p and mj <= r_p:
+            paste_mask[0, 0, mi, mj] = 1
+
+if COPY_MODE == 'inplace':
+    interpolated_k_paste_mask = cp_utils.extract_interpolated_mask(copy_mask, copy_k.shape[2:])
+else:
+    interpolated_k_paste_mask = cp_utils.extract_interpolated_mask(paste_mask, paste_k.shape[2:])
+
 goal_in = torch.mul(paste_k, interpolated_k_paste_mask)
-#goal_out = cp_utils.get_v_from_selection(copy_mask, copy_v, paste_mask, paste_v)
-goal_out = cp_utils.move_copy_v_to_paste_center(copy_mask, paste_mask, copy_v)
 
-#all_x_edited = torch.Tensor(NB_KEYS, x_edited_arr[0].shape[1], x_edited_arr[0].shape[2], x_edited_arr[0].shape[3])
-#torch.cat(x_edited_arr, out=all_x_edited)
-
-#v_new = estimate_v(rendering_model, v, all_x_edited, out_width, out_height, V_ITER, plot=True)
-
-#assert len(k_arr) != 0 and len(v_new_arr) != 0 and len(d_og_arr) != 0
+if COPY_MODE == 'inplace':
+    goal_out = cp_utils.move_copy_v_to_paste_center(copy_mask, copy_mask, copy_v, paste_v)
+else:
+    goal_out = cp_utils.move_copy_v_to_paste_center(copy_mask, paste_mask, copy_v, paste_v)
 
 print("Merging directions into tensors...")
 
 #all_values = v_new
 all_context = torch.cat([di for di in d_arr])
-DRANK = 8
+
 just_avg = all_context.mean(0)
 u, s, v = torch.svd(all_context.permute(1, 0), some=False)
 if (just_avg * u[:, 0]).sum() < 0:
     # Flip the first singular vectors to agree with avg direction
     u[:, 0] = -u[:, 0]
     v[:, 0] = -v[:, 0]
-assert u.shape[1] >= DRANK
-final_context = u.permute(1, 0)[:DRANK]
+if u.shape[1] < DRANK:
+    print("No SVD applied")
+    final_context = all_context
+else:
+    print("SVD rank reducing to", DRANK)
+    final_context = u.permute(1, 0)[:DRANK]
 #final_context = all_context
 print("final_context", final_context.shape)
 
@@ -263,18 +283,17 @@ print(all_directions.shape)
 
 print("Calculating new weights using (k*,v*) pairs...")
 
-print("K", goal_in[0,0])
-print("V", goal_out[0,0])
-print("CONTEXT", final_context)
+print("K", goal_in.shape)
+print("V", goal_out.shape)
+print("CONTEXT", final_context.shape)
 
 #weight = og_insert()
 #weight = linear_insert(model, target_model, paste_k, target_v, all_directions, W_ITER, plot=PLOT_R)
-linear_insert_fixed(target_model, goal_in, goal_out, final_context, W_ITER, plot=PLOT_R)
-#normal_insert_fixed(target_model, paste_k, copy_v, final_context, W_ITER=W_ITER, P_ITER=10, lr=0.001)
+linear_insert_fixed(target_model, goal_in, goal_out, final_context, W_ITER, plot=PLOT_R, lr=LR)
+#normal_insert_fixed(target_model, paste_k, copy_v, final_context, W_ITER=W_ITER, P_ITER=10, lr=LR)
 #print(weight.shape)
 
 print("Rewriting model...")
-print(model.main[target_layer])
 
 model.main[target_layer].register_parameter('weight', nn.Parameter(target_model[0].weight))
 torch.save(model.state_dict(), output_gen_path)

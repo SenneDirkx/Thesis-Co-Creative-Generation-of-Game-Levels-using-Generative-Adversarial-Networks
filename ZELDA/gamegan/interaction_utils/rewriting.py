@@ -209,6 +209,7 @@ def linear_insert_fixed(target_model, key, val, context, W_ITER=1000, plot=False
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            print(it, loss)
             if it == W_ITER-1:
                 print("LOSS", loss)
     with torch.no_grad():

@@ -16,6 +16,7 @@ import json
 
 PLOT_V = False
 PLOT_R = True
+OUTPUT_DIM_RAW = 32
 
 modelToLoad = sys.argv[1]
 nz = int(sys.argv[2])
@@ -58,8 +59,8 @@ output_gen_path = sys.argv[16]
 DRANK = int(sys.argv[17])
 LR = float(sys.argv[18])
 
-# full, inplace, moving
-COPY_MODE = 'inplace'
+# full, inplace, moving, half
+COPY_MODE = 'moving'
 
 print("Loading given generator...")
 
@@ -198,17 +199,20 @@ for i in range(context_k.shape[0]):
     k_key = context_k[i][None,:]
 
     if COPY_MODE == 'full':
-        k_context_mask = torch.ones((1, 1, out_height, out_width), dtype=torch.float32)
-    else:
-        k_context_mask = torch.zeros((1, 1, out_height, out_width), dtype=torch.float32)
-
-    ### TESTING
-
-    #print( "bounds",context_bounds[i*4],context_bounds[i*4+1],context_bounds[i*4+2], context_bounds[i*4+3])
-    for mi in range(out_height):
-        for mj in range(out_width):
-            if mi >= context_bounds[i*4] and mi <= context_bounds[i*4+2] and mj >= context_bounds[i*4+1] and mj <= context_bounds[i*4+3]:
+        k_context_mask = torch.ones((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
+    elif COPY_MODE == 'half':
+        k_context_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
+        for mi in range(out_height//2):
+            for mj in range(out_width):
                 k_context_mask[0, 0, mi, mj] = 1
+        #k_context_mask = torch.ones((1, 1, out_height, out_width), dtype=torch.float32)
+    else:
+        k_context_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
+
+        for mi in range(out_height):
+            for mj in range(out_width):
+                if mi >= context_bounds[i*4] and mi <= context_bounds[i*4+2] and mj >= context_bounds[i*4+1] and mj <= context_bounds[i*4+3]:
+                    k_context_mask[0, 0, mi, mj] = 1
     
     #print(k_context_mask[0,0])
     interpolated_k_context_mask = cp_utils.extract_interpolated_mask(k_context_mask, k_key.shape[2:])
@@ -227,35 +231,82 @@ for i in range(context_k.shape[0]):
 
 
 print("Calculate v* of given key...")
-summary(model)
-sys.exit(0)
+#sys.exit(0)
 
 if COPY_MODE == 'full':
-    copy_mask = torch.ones((1, 1, out_height, out_width), dtype=torch.float32)
-    paste_mask = torch.ones((1, 1, out_height, out_width), dtype=torch.float32)
-else:
-    copy_mask = torch.zeros((1, 1, out_height, out_width), dtype=torch.float32)
-    paste_mask = torch.zeros((1, 1, out_height, out_width), dtype=torch.float32)
-
-
-for mi in range(out_height):
-    for mj in range(out_width):
-        if mi >= t_c and mi <= b_c and mj >= l_c and mj <= r_c:
+    copy_mask = torch.ones((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
+    paste_mask = torch.ones((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
+elif COPY_MODE == 'half':
+    copy_mask = torch.ones((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
+    paste_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
+    for mi in range(out_height//2):
+        for mj in range(out_width):
             copy_mask[0, 0, mi, mj] = 1
-        if mi >= t_p and mi <= b_p and mj >= l_p and mj <= r_p:
             paste_mask[0, 0, mi, mj] = 1
+else:
+    copy_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
+    paste_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
+
+
+    for mi in range(out_height):
+        for mj in range(out_width):
+            if mi >= t_c and mi <= b_c and mj >= l_c and mj <= r_c:
+                copy_mask[0, 0, mi, mj] = 1
+            if mi >= t_p and mi <= b_p and mj >= l_p and mj <= r_p:
+                paste_mask[0, 0, mi, mj] = 1
 
 if COPY_MODE == 'inplace':
     interpolated_k_paste_mask = cp_utils.extract_interpolated_mask(copy_mask, copy_k.shape[2:])
 else:
     interpolated_k_paste_mask = cp_utils.extract_interpolated_mask(paste_mask, paste_k.shape[2:])
 
-goal_in = torch.mul(paste_k, interpolated_k_paste_mask)
+interpolated_v_copy_mask = cp_utils.extract_interpolated_mask(copy_mask, copy_v.shape[2:])
+tcv, lcv, bcv, rcv = cp_utils.positive_bounding_box(interpolated_v_copy_mask[0,0])
+print("bounding box", tcv, lcv, bcv, rcv)
+clip_mask = interpolated_v_copy_mask[:, :, tcv:bcv, lcv:rcv]
+clip = copy_v[:, :, tcv:bcv, lcv:rcv]
+print("clip", clip.shape)
 
-if COPY_MODE == 'inplace':
-    goal_out = cp_utils.move_copy_v_to_paste_center(copy_mask, copy_mask, copy_v, paste_v)
-else:
-    goal_out = cp_utils.move_copy_v_to_paste_center(copy_mask, paste_mask, copy_v, paste_v)
+interpolated_v_paste_mask = cp_utils.extract_interpolated_mask(paste_mask, paste_v.shape[2:])
+tpv, lpv, bpv, rpv = cp_utils.positive_bounding_box(interpolated_v_paste_mask[0,0])
+center = (tpv + bpv) // 2, (lpv + rpv) // 2
+
+ttv, ltv = (max(0, min(e - s, c - s // 2))
+            for s, c, e in zip(clip.shape[2:], center, paste_v.shape[2:]))
+btv, rtv = ttv + clip.shape[2], ltv + clip.shape[3]
+
+
+source_k = paste_k
+
+target_v = paste_v.clone()
+target_v[:, :, ttv:btv, ltv:rtv] = (1 - clip_mask) * target_v[:, :, ttv:btv, ltv:rtv] + clip_mask * clip
+
+vr, hr = [ts // ss for ts, ss in zip(target_v.shape[2:], source_k.shape[2:])]
+st, sl, sb, sr = ttv // vr, ltv // hr, -(-btv // vr), -(-rtv // hr)
+tt, tl, tb, tr = st * vr, sl * hr, sb * vr, sr * hr
+cs, ct = source_k[:, :, st:sb, sl:sr], target_v[:, :, tt:tb, tl:tr]
+print("cs", cs.shape)
+print("ct", ct.shape)
+
+goal_in = cs
+goal_out = ct
+
+#if COPY_MODE == 'inplace':
+#    target_v, (tb, lb, bb, rb) = cp_utils.move_copy_v_to_paste_center(copy_mask, copy_mask, copy_v, paste_v)
+#else:
+#    target_v, (tb, lb, bb, rb) = cp_utils.move_copy_v_to_paste_center(copy_mask, paste_mask, copy_v, paste_v)
+
+#print("GOAL OUT BOUNDS", (tb, lb, bb, rb))
+
+#goal_in = torch.mul(paste_k, interpolated_k_paste_mask)
+#goal_in = target_k[:, :, tbk:bbk+1, lbk:rbk+1]
+
+#if COPY_MODE == 'inplace':
+#    goal_out = cp_utils.move_copy_v_to_paste_center(copy_mask, copy_mask, copy_v, paste_v)
+#else:
+#    goal_out = cp_utils.move_copy_v_to_paste_center(copy_mask, paste_mask, copy_v, paste_v)
+
+#goal_out = target_v[:, :, tb:bb+1, lb:rb+1]
 
 print("Merging directions into tensors...")
 
@@ -291,7 +342,7 @@ print("CONTEXT", final_context.shape)
 #weight = og_insert()
 #weight = linear_insert(model, target_model, paste_k, target_v, all_directions, W_ITER, plot=PLOT_R)
 linear_insert_fixed(target_model, goal_in, goal_out, final_context, W_ITER, plot=PLOT_R, lr=LR)
-#normal_insert_fixed(target_model, paste_k, copy_v, final_context, W_ITER=W_ITER, P_ITER=10, lr=LR)
+#normal_insert_fixed(target_model, goal_in, goal_out, final_context, W_ITER=W_ITER, P_ITER=10, lr=LR)
 #print(weight.shape)
 
 print("Rewriting model...")

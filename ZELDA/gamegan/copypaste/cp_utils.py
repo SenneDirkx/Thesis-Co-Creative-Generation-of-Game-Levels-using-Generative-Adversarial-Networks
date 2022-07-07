@@ -8,10 +8,6 @@ def extract_interpolated_mask(mask_copy, target_size):
     expects mask of shape 1,1,h,w and v of shape 1,C,h,w
     """
     interpolated_mask = F.interpolate(mask_copy, size=target_size, mode='bilinear')
-    #print(interpolated_mask[0,0])
-    #interpolated_mask = torch.round(interpolated_mask)
-    #interpolated_mask[interpolated_mask > 0] = 1.0
-    #print(interpolated_mask[0,0])
     return interpolated_mask
 
 def get_bounds(mask):
@@ -85,18 +81,12 @@ def merge_old_with_new(new_v, old_v, mask, t_old, l_old, b_old, r_old, t_new, l_
 
 def move_copy_v_to_paste_center(copy_mask, paste_mask, copy_v, paste_v):
     interpolated_copy_mask = extract_interpolated_mask(copy_mask, copy_v.shape[2:])
-    new_unmoved_v = torch.mul(copy_v, interpolated_copy_mask)
-
-    interpolated_paste_mask = extract_interpolated_mask(paste_mask, copy_v.shape[2:])
+    interpolated_paste_mask = extract_interpolated_mask(paste_mask, paste_v.shape[2:])
     
     t_old, l_old, b_old, r_old = get_bounds(interpolated_copy_mask)
     t_new, l_new, b_new, r_new = get_paste_bounds(interpolated_copy_mask, interpolated_paste_mask)
 
-    #print(copy_v.shape)
-    #print(paste_v.shape)
-
-    #new_v = torch.clone(paste_v)
-    new_v = torch.zeros(new_unmoved_v.shape)
+    new_v = torch.clone(paste_v)
     y_diff = t_new - t_old
     x_diff = l_new - l_old
     for i in range(t_new, b_new+1):
@@ -105,12 +95,13 @@ def move_copy_v_to_paste_center(copy_mask, paste_mask, copy_v, paste_v):
         for j in range(l_new, r_new+1):
             if j < 0 or j >= new_v.shape[3]:
                 continue
-            #print(i, j)
+            #new_v[0, :, i, j] = copy_v[0, :, i-y_diff, j-x_diff]
             #new_v[0, :, i, j] = new_unmoved_v[0, :, i-y_diff, j-x_diff]
-            new_v[0, :, i, j] = new_unmoved_v[0, :, i-y_diff, j-x_diff] + (1-interpolated_copy_mask[0,0,i-y_diff, j-x_diff])*paste_v[0, :, i, j]
+            current_mask_val = interpolated_copy_mask[0,0,i-y_diff, j-x_diff]
+            new_v[0, :, i, j] = (current_mask_val*copy_v[0, :, i-y_diff, j-x_diff]) + ((1-current_mask_val)*paste_v[0, :, i, j])
             #new_v[0, :, i, j] = new_unmoved_v[0, :, i-y_diff, j-x_diff] - new_v[0, :, i, j]
             #new_v[0, :, i, j] = new_unmoved_v[0, :, i-y_diff, j-x_diff]
-    return new_v
+    return new_v, (t_new, l_new, b_new, r_new)
 
 def get_v_from_selection(copy_mask, copy_v, paste_mask, paste_v):
     interpolated_copy_mask = extract_interpolated_mask(copy_mask, copy_v.shape[2:])
@@ -150,6 +141,16 @@ def test():
 
     target_v = get_v_from_selection(test_copy_mask, copy_v, test_paste_mask, paste_v)
     print(target_v[0,0])
+
+def positive_bounding_box(data):
+    pos = (data > 0)
+    if pos.sum() == 0:
+        return 0, 0, 0, 0
+    
+    v, h = pos.sum(0).nonzero(), pos.sum(1).nonzero()
+    left, right = v.min().item(), v.max().item()
+    top, bottom = h.min().item(), h.max().item()
+    return top, left, bottom + 1, right + 1
 
 if __name__ == "__main__":
     test()

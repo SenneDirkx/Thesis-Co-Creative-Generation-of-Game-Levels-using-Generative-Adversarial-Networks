@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import models
 import numpy as np
-from interaction_utils.general import subsequence, make_loader, RunningSecondMoment, set_requires_grad, list_latent_to_tensor, list_level_to_tensor
+from interaction_utils.general import subsequence, make_loader, RunningSecondMoment, set_requires_grad, list_latent_to_tensor, list_level_to_tensor, zca_from_cov, zca_whitened_query_key
 import copy
 from torch.utils.data import TensorDataset
 import matplotlib.pyplot as plt
@@ -33,8 +33,8 @@ context_bounds = [int(bnd) for bnd in sys.argv[11].split(",")]
 W_ITER = int(sys.argv[12])
 C_SIZE = int(sys.argv[13])
 
-print("Copy bounds", t_c, l_c, b_c, r_c)
-print("Paste bounds", t_p, l_p, b_p, r_p)
+#print("Copy bounds", t_c, l_c, b_c, r_c)
+#print("Paste bounds", t_p, l_p, b_p, r_p)
 
 latent_path = sys.argv[14]
 
@@ -61,8 +61,10 @@ LR = float(sys.argv[18])
 
 # full, inplace, moving, half
 COPY_MODE = 'moving'
+# svd, zca
+RANK_METHOD = 'zca'
 
-print("Loading given generator...")
+#print("Loading given generator...")
 
 generator = models.DCGAN_G(imageSize, nz, z_dims, ngf, ngpu, n_extra_layers)
 # This is a state dictionary that might have deprecated key labels/names
@@ -129,7 +131,7 @@ else:
         .reshape(size, depth)).float()
 
 zds = TensorDataset(zds)
-print("Creating C matrix from randomly sampled k...")
+#print("Creating C matrix from randomly sampled k...")
 with torch.no_grad():
     
     loader = make_loader(zds, None, 10)
@@ -144,8 +146,9 @@ with torch.no_grad():
     c_matrix = r2mom.moment()
 
 c_inverse = torch.inverse(c_matrix)
+zca_matrix = zca_from_cov(c_matrix)
 
-print("Loading given key examples...")
+#print("Loading given key examples...")
 #z = torch.randn(NB_KEYS, nz, 4, 4)
 copy_z_arr = []
 paste_z_arr = []
@@ -186,15 +189,16 @@ context_k = context_model(context_z).detach()
 context_k.requires_grad = False
 
 W0 = target_model[0].weight
-print("weights", W0.shape)
+#print("weights", W0.shape)
 # REVIEW THIS
 W0_flat = W0.reshape(W0.shape[0], -1).permute(1, 0)
 
-print("Calculating directions...")
+#print("Calculating directions...")
 import cp_utils
 
 d_arr = []
 d_og_arr = []
+zca_arr = []
 for i in range(context_k.shape[0]):
     k_key = context_k[i][None,:]
 
@@ -216,6 +220,13 @@ for i in range(context_k.shape[0]):
     
     #print(k_context_mask[0,0])
     interpolated_k_context_mask = cp_utils.extract_interpolated_mask(k_context_mask, k_key.shape[2:])
+
+    k_obs = k_key.permute(0, 2, 3, 1).reshape(-1, k_key.shape[1])
+    k_w = interpolated_k_context_mask[0,0].view(-1)[:, None]
+    d_zca_full = (k_w * zca_whitened_query_key(zca_matrix, k_obs))
+    d_zca = d_zca_full[(k_w > 0).nonzero()[:, 0], :]
+    zca_arr.append(d_zca)
+
     #print(interpolated_k_context_mask[0,0])
     masked_k_key = torch.mul(k_key, interpolated_k_context_mask)
     #print(masked_k_key[0,0])
@@ -231,13 +242,16 @@ for i in range(context_k.shape[0]):
 
 
 print("Calculate v* of given key...")
-#sys.exit(0)
 
 if COPY_MODE == 'full':
-    copy_mask = torch.ones((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
-    paste_mask = torch.ones((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
+    copy_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
+    paste_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
+    for mi in range(out_height):
+        for mj in range(out_width):
+            copy_mask[0, 0, mi, mj] = 1
+            paste_mask[0, 0, mi, mj] = 1
 elif COPY_MODE == 'half':
-    copy_mask = torch.ones((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
+    copy_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
     paste_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
     for mi in range(out_height//2):
         for mj in range(out_width):
@@ -262,10 +276,10 @@ else:
 
 interpolated_v_copy_mask = cp_utils.extract_interpolated_mask(copy_mask, copy_v.shape[2:])
 tcv, lcv, bcv, rcv = cp_utils.positive_bounding_box(interpolated_v_copy_mask[0,0])
-print("bounding box", tcv, lcv, bcv, rcv)
+#print("bounding box", tcv, lcv, bcv, rcv)
 clip_mask = interpolated_v_copy_mask[:, :, tcv:bcv, lcv:rcv]
 clip = copy_v[:, :, tcv:bcv, lcv:rcv]
-print("clip", clip.shape)
+#print("clip", clip.shape)
 
 interpolated_v_paste_mask = cp_utils.extract_interpolated_mask(paste_mask, paste_v.shape[2:])
 tpv, lpv, bpv, rpv = cp_utils.positive_bounding_box(interpolated_v_paste_mask[0,0])
@@ -280,13 +294,14 @@ source_k = paste_k
 
 target_v = paste_v.clone()
 target_v[:, :, ttv:btv, ltv:rtv] = (1 - clip_mask) * target_v[:, :, ttv:btv, ltv:rtv] + clip_mask * clip
+#target_v[:, :, ttv:btv, ltv:rtv] = clip
 
 vr, hr = [ts // ss for ts, ss in zip(target_v.shape[2:], source_k.shape[2:])]
 st, sl, sb, sr = ttv // vr, ltv // hr, -(-btv // vr), -(-rtv // hr)
 tt, tl, tb, tr = st * vr, sl * hr, sb * vr, sr * hr
 cs, ct = source_k[:, :, st:sb, sl:sr], target_v[:, :, tt:tb, tl:tr]
-print("cs", cs.shape)
-print("ct", ct.shape)
+#print("cs", cs.shape)
+#print("ct", ct.shape)
 
 goal_in = cs
 goal_out = ct
@@ -308,44 +323,62 @@ goal_out = ct
 
 #goal_out = target_v[:, :, tb:bb+1, lb:rb+1]
 
-print("Merging directions into tensors...")
+#print("Merging directions into tensors...")
 
 #all_values = v_new
 all_context = torch.cat([di for di in d_arr])
+all_zca = torch.cat(zca_arr)
 
-just_avg = all_context.mean(0)
-u, s, v = torch.svd(all_context.permute(1, 0), some=False)
-if (just_avg * u[:, 0]).sum() < 0:
-    # Flip the first singular vectors to agree with avg direction
-    u[:, 0] = -u[:, 0]
-    v[:, 0] = -v[:, 0]
-if u.shape[1] < DRANK:
-    print("No SVD applied")
-    final_context = all_context
+if RANK_METHOD == 'svd':
+    just_avg = all_context.mean(0)
+    u, s, v = torch.svd(all_context.permute(1, 0), some=False)
+    if (just_avg * u[:, 0]).sum() < 0:
+        # Flip the first singular vectors to agree with avg direction
+        u[:, 0] = -u[:, 0]
+        v[:, 0] = -v[:, 0]
+    if u.shape[1] < DRANK:
+        print("No SVD applied")
+        final_context = all_context
+    else:
+        print("SVD rank reducing to", DRANK)
+        final_context = u.permute(1, 0)[:DRANK]
+elif RANK_METHOD == 'zca':
+    _, _, q = all_zca.svd(compute_uv=True)
+    print(q.shape)
+    top_e_vec = q[:, :DRANK]
+    row_dirs = zca_whitened_query_key(zca_matrix, top_e_vec.t())
+    print(row_dirs.shape)
+    just_avg = (all_zca).sum(0)
+    q, r = torch.qr(row_dirs.permute(1, 0))
+    print(q.shape)
+    signs = (q * just_avg[:, None]).sum(0).sign()
+    q = q * signs[None, :]
+    print(q.shape)
+    final_context = q.permute(1, 0)
 else:
-    print("SVD rank reducing to", DRANK)
-    final_context = u.permute(1, 0)[:DRANK]
-#final_context = all_context
-print("final_context", final_context.shape)
+    print("no rank reduction")
+    final_context = all_context
 
+#print("final_context", final_context.shape)
+#sys.exit(0)
 all_directions = torch.Tensor(context_k.shape[0], d_og_arr[0].shape[1], d_og_arr[0].shape[2], d_og_arr[0].shape[3])
 torch.cat(d_og_arr, out=all_directions)
 
-print(all_directions.shape)
+#print(all_directions.shape)
 
-print("Calculating new weights using (k*,v*) pairs...")
+#print("Calculating new weights using (k*,v*) pairs...")
 
-print("K", goal_in.shape)
-print("V", goal_out.shape)
-print("CONTEXT", final_context.shape)
+#print("K", goal_in.shape)
+#print("V", goal_out.shape)
+#print("CONTEXT", final_context.shape)
 
 #weight = og_insert()
 #weight = linear_insert(model, target_model, paste_k, target_v, all_directions, W_ITER, plot=PLOT_R)
-linear_insert_fixed(target_model, goal_in, goal_out, final_context, W_ITER, plot=PLOT_R, lr=LR)
-#normal_insert_fixed(target_model, goal_in, goal_out, final_context, W_ITER=W_ITER, P_ITER=10, lr=LR)
+#linear_insert_fixed(target_model, goal_in, goal_out, final_context, W_ITER, plot=PLOT_R, lr=LR)
+normal_insert_fixed(target_model, goal_in, goal_out, final_context, W_ITER=W_ITER, P_ITER=4, lr=LR)
 #print(weight.shape)
 
-print("Rewriting model...")
+#print("Rewriting model...")
 
 model.main[target_layer].register_parameter('weight', nn.Parameter(target_model[0].weight))
 torch.save(model.state_dict(), output_gen_path)

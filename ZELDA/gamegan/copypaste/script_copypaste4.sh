@@ -1,0 +1,7 @@
+#!/bin/zsh
+python interact_copypaste.py ../ZeldaDungeon02_5000_10Z.pth 10 4 11 16 58 6,3,9,7 3 4,4,5,6 15,13,37,43 4,4,5,6,10,4,11,6,7,4,8,6,7,4,8,6 2500 512 latent_input.txt 4 ./output/rewritten_cp_generator4_normal.pth 16 0.0001
+cd ..
+echo "generating levels..."
+python main.py copypaste/output/rewritten_cp_generator4_normal.pth 10 4 11 16 copypaste/latent_input.txt copypaste/output/rewritten_output4_normal.json
+python json_to_image.py copypaste/output/rewritten_output4_normal.json copypaste/output/rewritten_image4_normal.png
+cd ./copypaste

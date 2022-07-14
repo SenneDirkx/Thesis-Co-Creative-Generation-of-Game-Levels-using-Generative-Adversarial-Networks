@@ -239,18 +239,25 @@ def normal_insert_fixed(target_model, key, val, context, W_ITER=1000, P_ITER=10,
             ortho_weight = weight - projected_conv(weight, context)
     optimizer = torch.optim.Adam(params, lr=lr)
 
+    loss_begin = 0
+    loss_end = 0
     for it in range(W_ITER):
         with torch.enable_grad():
             loss = compute_loss()
+            if it == 0:
+                loss_begin = loss.item()
+            if it == W_ITER-1:
+                loss_end = loss.item()
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            print(it, loss)
+            #print(it, loss)
             # Project to rank-one over context direction
             if LOW_RANK_INSERT and (it % P_ITER == 0 or it == W_ITER - 1):
                 with torch.no_grad():
                     weight[...] = (
                         ortho_weight + projected_conv(weight, context))
+    return loss_begin, loss_end
 
 def projected_conv(weight, direction):
     cosine_map = torch.einsum('oiyx, di -> odyx', weight.permute(1,0,2,3), direction)

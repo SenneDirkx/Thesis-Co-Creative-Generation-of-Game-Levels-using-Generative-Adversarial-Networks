@@ -1,0 +1,15 @@
+Copy bounds 5 4 6 5
+Paste bounds 6 3 10 7
+Context bounds [6, 3, 10, 7, 6, 3, 10, 7, 6, 3, 10, 7, 6, 3, 10, 7]
+Copy V bounding box: 5 4 7 6
+Paste V bounding box: 5 4 7 6
+Goal in bounding box: 3 2 5 3
+Goal out bounding box: 6 4 10 6
+ZCA torch.Size([36, 64])
+Goal in: torch.Size([1, 64, 2, 1])
+Goal out: torch.Size([1, 4, 4, 2])
+Context: torch.Size([1, 64])
+Loss change: 0.9204504489898682 -> 0.003728095907717943
+Diversity Dice: 0.8075355831037674 in 4950 pairs
+Diversity LPIPS: 0.11193928867578506 in 1225 pairs
+Constraint SAT: 0.0

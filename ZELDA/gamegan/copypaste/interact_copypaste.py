@@ -1,8 +1,11 @@
+import warnings
+warnings.simplefilter("ignore", UserWarning)
 import sys
 sys.path.append("..")
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.transforms.functional as VF
 import models
 import numpy as np
 from interaction_utils.general import subsequence, make_loader, RunningSecondMoment, set_requires_grad, list_latent_to_tensor, list_level_to_tensor, zca_from_cov, zca_whitened_query_key
@@ -33,8 +36,9 @@ context_bounds = [int(bnd) for bnd in sys.argv[11].split(",")]
 W_ITER = int(sys.argv[12])
 C_SIZE = int(sys.argv[13])
 
-#print("Copy bounds", t_c, l_c, b_c, r_c)
-#print("Paste bounds", t_p, l_p, b_p, r_p)
+print("Copy bounds", t_c, l_c, b_c, r_c)
+print("Paste bounds", t_p, l_p, b_p, r_p)
+print("Context bounds", context_bounds)
 
 latent_path = sys.argv[14]
 
@@ -217,8 +221,7 @@ for i in range(context_k.shape[0]):
             for mj in range(out_width):
                 if mi >= context_bounds[i*4] and mi <= context_bounds[i*4+2] and mj >= context_bounds[i*4+1] and mj <= context_bounds[i*4+3]:
                     k_context_mask[0, 0, mi, mj] = 1
-    
-    #print(k_context_mask[0,0])
+
     interpolated_k_context_mask = cp_utils.extract_interpolated_mask(k_context_mask, k_key.shape[2:])
 
     k_obs = k_key.permute(0, 2, 3, 1).reshape(-1, k_key.shape[1])
@@ -240,8 +243,7 @@ for i in range(context_k.shape[0]):
     d_arr.append(d)
     d_og_arr.append(d_og)
 
-
-print("Calculate v* of given key...")
+#print("Calculate v* of given key...")
 
 if COPY_MODE == 'full':
     copy_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
@@ -276,13 +278,15 @@ else:
 
 interpolated_v_copy_mask = cp_utils.extract_interpolated_mask(copy_mask, copy_v.shape[2:])
 tcv, lcv, bcv, rcv = cp_utils.positive_bounding_box(interpolated_v_copy_mask[0,0])
-#print("bounding box", tcv, lcv, bcv, rcv)
+print("Copy V bounding box:", tcv, lcv, bcv, rcv)
 clip_mask = interpolated_v_copy_mask[:, :, tcv:bcv, lcv:rcv]
 clip = copy_v[:, :, tcv:bcv, lcv:rcv]
 #print("clip", clip.shape)
 
 interpolated_v_paste_mask = cp_utils.extract_interpolated_mask(paste_mask, paste_v.shape[2:])
 tpv, lpv, bpv, rpv = cp_utils.positive_bounding_box(interpolated_v_paste_mask[0,0])
+print("Paste V bounding box:", tcv, lcv, bcv, rcv)
+
 center = (tpv + bpv) // 2, (lpv + rpv) // 2
 
 ttv, ltv = (max(0, min(e - s, c - s // 2))
@@ -299,6 +303,9 @@ target_v[:, :, ttv:btv, ltv:rtv] = (1 - clip_mask) * target_v[:, :, ttv:btv, ltv
 vr, hr = [ts // ss for ts, ss in zip(target_v.shape[2:], source_k.shape[2:])]
 st, sl, sb, sr = ttv // vr, ltv // hr, -(-btv // vr), -(-rtv // hr)
 tt, tl, tb, tr = st * vr, sl * hr, sb * vr, sr * hr
+print("Goal in bounding box:", st, sl, sb, sr)
+print("Goal out bounding box:", tt, tl, tb, tr)
+
 cs, ct = source_k[:, :, st:sb, sl:sr], target_v[:, :, tt:tb, tl:tr]
 #print("cs", cs.shape)
 #print("ct", ct.shape)
@@ -329,6 +336,8 @@ goal_out = ct
 all_context = torch.cat([di for di in d_arr])
 all_zca = torch.cat(zca_arr)
 
+print("ZCA", all_zca.shape)
+
 if RANK_METHOD == 'svd':
     just_avg = all_context.mean(0)
     u, s, v = torch.svd(all_context.permute(1, 0), some=False)
@@ -344,16 +353,16 @@ if RANK_METHOD == 'svd':
         final_context = u.permute(1, 0)[:DRANK]
 elif RANK_METHOD == 'zca':
     _, _, q = all_zca.svd(compute_uv=True)
-    print(q.shape)
+    #print(q.shape)
     top_e_vec = q[:, :DRANK]
     row_dirs = zca_whitened_query_key(zca_matrix, top_e_vec.t())
-    print(row_dirs.shape)
+    #print(row_dirs.shape)
     just_avg = (all_zca).sum(0)
     q, r = torch.qr(row_dirs.permute(1, 0))
-    print(q.shape)
+    #print(q.shape)
     signs = (q * just_avg[:, None]).sum(0).sign()
     q = q * signs[None, :]
-    print(q.shape)
+    #print(q.shape)
     final_context = q.permute(1, 0)
 else:
     print("no rank reduction")
@@ -361,22 +370,20 @@ else:
 
 #print("final_context", final_context.shape)
 #sys.exit(0)
-all_directions = torch.Tensor(context_k.shape[0], d_og_arr[0].shape[1], d_og_arr[0].shape[2], d_og_arr[0].shape[3])
-torch.cat(d_og_arr, out=all_directions)
 
-#print(all_directions.shape)
 
 #print("Calculating new weights using (k*,v*) pairs...")
 
-#print("K", goal_in.shape)
-#print("V", goal_out.shape)
-#print("CONTEXT", final_context.shape)
+print("Goal in:", goal_in.shape)
+print("Goal out:", goal_out.shape)
+print("Context:", final_context.shape)
 
 #weight = og_insert()
 #weight = linear_insert(model, target_model, paste_k, target_v, all_directions, W_ITER, plot=PLOT_R)
 #linear_insert_fixed(target_model, goal_in, goal_out, final_context, W_ITER, plot=PLOT_R, lr=LR)
-normal_insert_fixed(target_model, goal_in, goal_out, final_context, W_ITER=W_ITER, P_ITER=4, lr=LR)
+loss_begin, loss_end = normal_insert_fixed(target_model, goal_in, goal_out, final_context, W_ITER=W_ITER, P_ITER=4, lr=LR)
 #print(weight.shape)
+print("Loss change:", loss_begin, '->', loss_end)
 
 #print("Rewriting model...")
 

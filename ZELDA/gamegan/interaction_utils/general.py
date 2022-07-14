@@ -216,3 +216,15 @@ def list_level_to_tensor(list_level):
     tensor_level = tensor_level.permute(2, 0, 1)
     tensor_level = tensor_level[None, :]
     return tensor_level
+
+def zca_from_cov(cov):
+    evals, evecs = torch.symeig(cov.double(), eigenvectors=True)
+    zca = torch.mm(torch.mm(evecs, torch.diag
+                            (evals.sqrt().clamp(1e-20).reciprocal())),
+                   evecs.t()).to(cov.dtype)
+    return zca
+
+def zca_whitened_query_key(zca_matrix, k):
+    if len(k.shape) == 1:
+        return torch.mm(zca_matrix, k[:, None])[:, 0]
+    return torch.mm(zca_matrix, k.permute(1, 0)).permute(1, 0)

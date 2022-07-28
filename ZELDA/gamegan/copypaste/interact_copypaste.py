@@ -286,8 +286,8 @@ clip = copy_v[:, :, tcv:bcv, lcv:rcv]
 interpolated_v_paste_mask = cp_utils.extract_interpolated_mask(paste_mask, paste_v.shape[2:])
 tpv, lpv, bpv, rpv = cp_utils.positive_bounding_box(interpolated_v_paste_mask[0,0])
 print("Paste V bounding box:", tcv, lcv, bcv, rcv)
-
 center = (tpv + bpv) // 2, (lpv + rpv) // 2
+
 
 ttv, ltv = (max(0, min(e - s, c - s // 2))
             for s, c, e in zip(clip.shape[2:], center, paste_v.shape[2:]))

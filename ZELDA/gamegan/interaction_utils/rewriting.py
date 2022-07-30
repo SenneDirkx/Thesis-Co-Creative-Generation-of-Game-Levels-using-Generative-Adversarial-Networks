@@ -9,6 +9,9 @@ def estimate_v(rendering_model, start_v, x_edited, out_width, out_height, V_ITER
     # maybe also l1 loss??
     #print("render output", rendering_model(start_v)[:, :, :out_height, :out_width])
     #print("edited", x_edited)
+    print("ESTIMATE V")
+    print("shape x edited", x_edited.shape)
+    print("shape start v", start_v.shape)
 
     criterion = nn.MSELoss()
     def compute_loss_v(x_cur):
@@ -25,14 +28,16 @@ def estimate_v(rendering_model, start_v, x_edited, out_width, out_height, V_ITER
         with torch.enable_grad():
             x_current = rendering_model(v_new)
             x_current = x_current[:, :, :out_height, :out_width]
+            #print("shape x_current", x_current.shape)
             #a = x_current.argmax(axis = 1)
             #x_onehotted = torch.zeros(x_current.shape).scatter(1, a.unsqueeze(1), 1.0)
             
-            ret = F.gumbel_softmax(x_current, tau=1, hard=True, dim=1)
+            #ret = F.gumbel_softmax(x_current, tau=1, hard=True, dim=1)
+            #ret = torch.argmax(x_current, dim=1)
             #print(ret.shape)
             #print(ret[0,:,10,10])
             #print(x_current.shape)
-            loss = compute_loss_v(ret)
+            loss = compute_loss_v(x_current)
             v_opt.zero_grad()
             loss.backward()
             v_losses.append(loss.detach())
@@ -44,6 +49,7 @@ def estimate_v(rendering_model, start_v, x_edited, out_width, out_height, V_ITER
     if plot:
         plt.figure()
         plt.title("V losses")
+        plt.yscale("log")
         plt.plot(v_losses)
         plt.show()
 

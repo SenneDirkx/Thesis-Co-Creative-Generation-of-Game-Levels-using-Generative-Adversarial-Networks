@@ -1,10 +1,12 @@
+import warnings
+warnings.simplefilter("ignore", UserWarning)
 import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import models
 import numpy as np
-from interaction_utils.general import subsequence, make_loader, RunningSecondMoment, set_requires_grad, list_latent_to_tensor, list_level_to_tensor, zca_from_cov, zca_whitened_query_key
+from interaction_utils.general import load_edited_x, subsequence, make_loader, RunningSecondMoment, set_requires_grad, list_latent_to_tensor, list_level_to_tensor, zca_from_cov, zca_whitened_query_key
 import copy
 from torch.utils.data import TensorDataset
 import matplotlib.pyplot as plt
@@ -13,8 +15,8 @@ from collections import OrderedDict
 from torchsummary import summary
 import json
 
-PLOT_V = False
-PLOT_R = True
+PLOT_V = True
+PLOT_R = False
 OUTPUT_DIM_RAW = 32
 
 modelToLoad = sys.argv[1]
@@ -23,19 +25,18 @@ z_dims = int(sys.argv[3])
 out_width = int(sys.argv[4])
 out_height = int(sys.argv[5])
 
-t_c, l_c, b_c, r_c = [int(bnd) for bnd in sys.argv[6].split(",")]
-PASTE_KEY = int(sys.argv[7])
-t_p, l_p, b_p, r_p = [int(bnd) for bnd in sys.argv[8].split(",")]
-CONTEXT_KEYS = [int(ck) for ck in sys.argv[9].split(",")]
-context_bounds = [int(bnd) for bnd in sys.argv[10].split(",")]
+PASTE_KEY = int(sys.argv[6])
+t_p, l_p, b_p, r_p = [int(bnd) for bnd in sys.argv[7].split(",")]
+CONTEXT_KEYS = [int(ck) for ck in sys.argv[8].split(",")]
+context_bounds = [int(bnd) for bnd in sys.argv[9].split(",")]
 
-V_ITER = int(sys.argv[11])
+V_ITER = int(sys.argv[10])
 
-W_ITER = int(sys.argv[12])
-C_SIZE = int(sys.argv[13])
+W_ITER = int(sys.argv[11])
+C_SIZE = int(sys.argv[12])
 
-latent_path = sys.argv[14]
-edited_path = sys.argv[15]
+latent_path = sys.argv[13]
+edited_path = sys.argv[14]
 
 batchSize = 1
 imageSize = 32
@@ -44,7 +45,7 @@ ngpu = 1
 n_extra_layers = 0
 
 # 1 2 3 of 4
-CHOSEN_LAYER = int(sys.argv[16])
+CHOSEN_LAYER = int(sys.argv[15])
 # 4 CONV layers (index 0, 3, 6, 9)
 # Output sizes (256, 4, 4) (128, 8, 8) (64, 16, 16) (4, 32, 32)
 # Names: initial:10-256:convt, pyramid:256-128:convt, pyramid:128-64:convt, final:64-4:convt
@@ -54,9 +55,9 @@ target_layer = target_layer_options[CHOSEN_LAYER-1]
 firstlayer = layername_options[CHOSEN_LAYER-1]
 lastlayer = layername_options[CHOSEN_LAYER-1]
 
-output_gen_path = sys.argv[17]
-DRANK = int(sys.argv[18])
-LR = float(sys.argv[19])
+output_gen_path = sys.argv[16]
+DRANK = int(sys.argv[17])
+LR = float(sys.argv[18])
 
 # full, inplace, moving, half
 COPY_MODE = 'moving'
@@ -147,7 +148,7 @@ with torch.no_grad():
 c_inverse = torch.inverse(c_matrix)
 zca_matrix = zca_from_cov(c_matrix)
 
-print("Loading given key examples...")
+#print("Loading given key examples...")
 #z = torch.randn(NB_KEYS, nz, 4, 4)
 paste_z_arr = []
 context_z_arr = []
@@ -178,11 +179,11 @@ context_k = context_model(context_z).detach()
 context_k.requires_grad = False
 
 W0 = target_model[0].weight
-print("weights", W0.shape)
+#print("weights", W0.shape)
 # REVIEW THIS
 W0_flat = W0.reshape(W0.shape[0], -1).permute(1, 0)
 
-print("Calculating directions...")
+#print("Calculating directions...")
 import copypaste.cp_utils as cp_utils
 
 d_arr = []
@@ -190,22 +191,12 @@ d_og_arr = []
 zca_arr = []
 for i in range(context_k.shape[0]):
     k_key = context_k[i][None,:]
+    k_context_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
 
-    if COPY_MODE == 'full':
-        k_context_mask = torch.ones((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
-    elif COPY_MODE == 'half':
-        k_context_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
-        for mi in range(out_height//2):
-            for mj in range(out_width):
+    for mi in range(out_height):
+        for mj in range(out_width):
+            if mi >= context_bounds[i*4] and mi <= context_bounds[i*4+2] and mj >= context_bounds[i*4+1] and mj <= context_bounds[i*4+3]:
                 k_context_mask[0, 0, mi, mj] = 1
-        #k_context_mask = torch.ones((1, 1, out_height, out_width), dtype=torch.float32)
-    else:
-        k_context_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
-
-        for mi in range(out_height):
-            for mj in range(out_width):
-                if mi >= context_bounds[i*4] and mi <= context_bounds[i*4+2] and mj >= context_bounds[i*4+1] and mj <= context_bounds[i*4+3]:
-                    k_context_mask[0, 0, mi, mj] = 1
     
     #print(k_context_mask[0,0])
     interpolated_k_context_mask = cp_utils.extract_interpolated_mask(k_context_mask, k_key.shape[2:])
@@ -231,81 +222,29 @@ for i in range(context_k.shape[0]):
 
 
 
-print("Find v* of given keys...")
+#print("Find v* of given keys...")
 
-if COPY_MODE == 'full':
-    custom_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
-    paste_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
-    for mi in range(out_height):
-        for mj in range(out_width):
-            custom_mask[0, 0, mi, mj] = 1
+paste_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
+
+
+for mi in range(out_height):
+    for mj in range(out_width):
+        if mi >= t_p and mi <= b_p and mj >= l_p and mj <= r_p:
             paste_mask[0, 0, mi, mj] = 1
-elif COPY_MODE == 'half':
-    custom_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
-    paste_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
-    for mi in range(out_height//2):
-        for mj in range(out_width):
-            custom_mask[0, 0, mi, mj] = 1
-            paste_mask[0, 0, mi, mj] = 1
-else:
-    custom_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
-    paste_mask = torch.zeros((1, 1, OUTPUT_DIM_RAW, OUTPUT_DIM_RAW), dtype=torch.float32)
-
-
-    for mi in range(out_height):
-        for mj in range(out_width):
-            if mi >= t_c and mi <= b_c and mj >= l_c and mj <= r_c:
-                custom_mask[0, 0, mi, mj] = 1
-            if mi >= t_p and mi <= b_p and mj >= l_p and mj <= r_p:
-                paste_mask[0, 0, mi, mj] = 1
                 
-if COPY_MODE == 'inplace':
-    interpolated_k_paste_mask = cp_utils.extract_interpolated_mask(custom_mask, paste_k.shape[2:])
-else:
-    interpolated_k_paste_mask = cp_utils.extract_interpolated_mask(paste_mask, paste_k.shape[2:])
-
-v_new_arr = []
-x_edited_arr = []
-
-with open(edited_path, 'r') as level_output:
-    counter = 0
-    for line in level_output:
-        list_level = json.loads(line)
-        #x_edited_arr.append(torch.randn(1, 10, 16, 11))
-        x_edited = list_level_to_tensor(list_level)
-        #print(x_edited.shape)
-        x_edited_arr.append(x_edited)
-        counter += 1
-
-for j in range(len(x_edited_arr)):
-    print(f"-> Find v* of {j+1}th key...")
-    v_key = paste_v[i][None,:]
-    v_new = estimate_v(rendering_model, v_key, x_edited_arr[i], out_width, out_height, V_ITER, plot=PLOT_V)
-    v_new_arr.append(v_new)
-
-#all_x_edited = torch.Tensor(NB_KEYS, x_edited_arr[0].shape[1], x_edited_arr[0].shape[2], x_edited_arr[0].shape[3])
-#torch.cat(x_edited_arr, out=all_x_edited)
-
-#v_new = estimate_v(rendering_model, v, all_x_edited, out_width, out_height, V_ITER, plot=True)
-
-#assert len(k_arr) != 0 and len(v_new_arr) != 0 and len(d_og_arr) != 0
-
-print("Merging all keys, values and directions into tensors...")
-
-new_v_full = torch.Tensor(1, v_new_arr[0].shape[1], v_new_arr[0].shape[2], v_new_arr[0].shape[3])
-torch.cat(v_new_arr, out=new_v_full)
+interpolated_k_paste_mask = cp_utils.extract_interpolated_mask(paste_mask, paste_k.shape[2:])
+interpolated_v_custom_mask = cp_utils.extract_interpolated_mask(paste_mask, paste_v.shape[2:])
+tv, lv, bv, rv = cp_utils.positive_bounding_box(interpolated_v_custom_mask[0,0])
+print("V bounding box:", tv, lv, bv, rv)
+clip_mask = interpolated_v_custom_mask[:, :, tv:bv, lv:rv]
 
 
-interpolated_v_copy_mask = cp_utils.extract_interpolated_mask(custom_mask, new_v_full.shape[2:])
-tcv, lcv, bcv, rcv = cp_utils.positive_bounding_box(interpolated_v_copy_mask[0,0])
-print("bounding box", tcv, lcv, bcv, rcv)
-clip_mask = interpolated_v_copy_mask[:, :, tcv:bcv, lcv:rcv]
-clip = new_v_full[:, :, tcv:bcv, lcv:rcv]
-print("clip", clip.shape)
+random_v = torch.rand(paste_v.shape)
+edited_x = load_edited_x(edited_path)
+v_new = estimate_v(rendering_model, random_v, edited_x, out_width, out_height, V_ITER, plot=PLOT_V)
 
-interpolated_v_paste_mask = cp_utils.extract_interpolated_mask(paste_mask, paste_v.shape[2:])
-tpv, lpv, bpv, rpv = cp_utils.positive_bounding_box(interpolated_v_paste_mask[0,0])
-center = (tpv + bpv) // 2, (lpv + rpv) // 2
+clip = v_new[:, :, tv:bv, lv:rv]
+center = (tv + bv) // 2, (lv + rv) // 2
 
 ttv, ltv = (max(0, min(e - s, c - s // 2))
             for s, c, e in zip(clip.shape[2:], center, paste_v.shape[2:]))
@@ -313,17 +252,15 @@ btv, rtv = ttv + clip.shape[2], ltv + clip.shape[3]
 
 
 source_k = paste_k
-
 target_v = paste_v.clone()
 target_v[:, :, ttv:btv, ltv:rtv] = (1 - clip_mask) * target_v[:, :, ttv:btv, ltv:rtv] + clip_mask * clip
-#target_v[:, :, ttv:btv, ltv:rtv] = clip
 
 vr, hr = [ts // ss for ts, ss in zip(target_v.shape[2:], source_k.shape[2:])]
 st, sl, sb, sr = ttv // vr, ltv // hr, -(-btv // vr), -(-rtv // hr)
 tt, tl, tb, tr = st * vr, sl * hr, sb * vr, sr * hr
+print("Goal in bounding box:", st, sl, sb, sr)
+print("Goal out bounding box:", tt, tl, tb, tr)
 cs, ct = source_k[:, :, st:sb, sl:sr], target_v[:, :, tt:tb, tl:tr]
-print("cs", cs.shape)
-print("ct", ct.shape)
 
 goal_in = cs
 goal_out = ct
@@ -348,36 +285,33 @@ if RANK_METHOD == 'svd':
         final_context = u.permute(1, 0)[:DRANK]
 elif RANK_METHOD == 'zca':
     _, _, q = all_zca.svd(compute_uv=True)
-    print(q.shape)
     top_e_vec = q[:, :DRANK]
     row_dirs = zca_whitened_query_key(zca_matrix, top_e_vec.t())
-    print(row_dirs.shape)
     just_avg = (all_zca).sum(0)
     q, r = torch.qr(row_dirs.permute(1, 0))
-    print(q.shape)
     signs = (q * just_avg[:, None]).sum(0).sign()
     q = q * signs[None, :]
-    print(q.shape)
     final_context = q.permute(1, 0)
 else:
     print("no rank reduction")
     final_context = all_context
 
-print("final_context", final_context.shape)
+#print("final_context", final_context.shape)
 #sys.exit(0)
-all_directions = torch.Tensor(context_k.shape[0], d_og_arr[0].shape[1], d_og_arr[0].shape[2], d_og_arr[0].shape[3])
-torch.cat(d_og_arr, out=all_directions)
 
-print(all_directions.shape)
 
 print("Calculating new weights using (k*,v*) pairs...")
 
+print("Goal in:", goal_in.shape)
+print("Goal out:", goal_out.shape)
+print("Context:", final_context.shape)
+
 #weight = og_insert()
-normal_insert_fixed(target_model, goal_in, goal_out, final_context, W_ITER=W_ITER, P_ITER=4, lr=LR)
+loss_begin, loss_end = normal_insert_fixed(target_model, goal_in, goal_out, final_context, W_ITER=W_ITER, P_ITER=4, lr=LR)
 #weight = linear_insert(model, target_model, all_keys, all_values, all_directions, W_ITER, plot=PLOT_R)
 #print(weight.shape)
 
-print("Rewriting model...")
+#print("Rewriting model...")
 model.main[target_layer].register_parameter('weight', nn.Parameter(target_model[0].weight))
 torch.save(model.state_dict(), output_gen_path)
 

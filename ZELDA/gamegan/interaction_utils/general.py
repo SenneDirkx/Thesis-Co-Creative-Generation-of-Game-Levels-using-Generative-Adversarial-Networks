@@ -3,6 +3,7 @@ import copy
 from collections import OrderedDict
 from torch.utils.data.sampler import Sampler
 import numpy as np
+import json
 
 def subsequence(sequential, first_layer=None, last_layer=None,
                 after_layer=None, upto_layer=None, single_layer=None,
@@ -228,3 +229,19 @@ def zca_whitened_query_key(zca_matrix, k):
     if len(k.shape) == 1:
         return torch.mm(zca_matrix, k[:, None])[:, 0]
     return torch.mm(zca_matrix, k.permute(1, 0)).permute(1, 0)
+
+def load_edited_x(filepath):
+    x_edited_arr = []
+    with open(filepath, 'r') as level_output:
+        counter = 0
+        for line in level_output:
+            list_level = json.loads(line)
+            #x_edited_arr.append(torch.randn(1, 10, 16, 11))
+            x_edited = list_level_to_tensor(list_level)
+            #print(x_edited.shape)
+            x_edited_arr.append(x_edited)
+            counter += 1
+    
+    all_x_edited = torch.Tensor(1, x_edited_arr[0].shape[1], x_edited_arr[0].shape[2], x_edited_arr[0].shape[3])
+    torch.cat(x_edited_arr, out=all_x_edited)
+    return all_x_edited

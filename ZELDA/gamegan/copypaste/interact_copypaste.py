@@ -305,7 +305,6 @@ st, sl, sb, sr = ttv // vr, ltv // hr, -(-btv // vr), -(-rtv // hr)
 tt, tl, tb, tr = st * vr, sl * hr, sb * vr, sr * hr
 print("Goal in bounding box:", st, sl, sb, sr)
 print("Goal out bounding box:", tt, tl, tb, tr)
-
 cs, ct = source_k[:, :, st:sb, sl:sr], target_v[:, :, tt:tb, tl:tr]
 #print("cs", cs.shape)
 #print("ct", ct.shape)

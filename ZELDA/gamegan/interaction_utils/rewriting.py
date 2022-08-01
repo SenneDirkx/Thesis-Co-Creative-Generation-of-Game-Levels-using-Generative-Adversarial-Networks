@@ -5,7 +5,7 @@ import copy
 import matplotlib.pyplot as plt
 from interaction_utils.general import set_requires_grad
 
-def estimate_v(rendering_model, start_v, x_edited, out_width, out_height, V_ITER=1000, plot=False):
+def estimate_v(rendering_model, start_v, x_edited, out_width, out_height, V_ITER=1000, lr=0.001, plot=False):
     # maybe also l1 loss??
     #print("render output", rendering_model(start_v)[:, :, :out_height, :out_width])
     #print("edited", x_edited)
@@ -22,7 +22,7 @@ def estimate_v(rendering_model, start_v, x_edited, out_width, out_height, V_ITER
         v_new = torch.clone(start_v)
     #v_og = torch.clone(v_new)
     v_new.requires_grad = True
-    v_opt = torch.optim.Adam([v_new], lr=0.001)
+    v_opt = torch.optim.Adam([v_new], lr=lr)
     v_losses = []
     for _ in range(V_ITER):
         with torch.enable_grad():

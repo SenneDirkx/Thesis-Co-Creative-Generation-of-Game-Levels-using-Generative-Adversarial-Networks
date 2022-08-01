@@ -103,8 +103,7 @@ def main_lpips():
             levels.append(upscaled_image)
     total_score = 0
     pair_counter = 0
-    MAX_LEVELS = len(levels)
-    MAX_LEVELS = 50
+    MAX_LEVELS = min(len(levels),50)
     for i in range(MAX_LEVELS):
         for j in range(i+1, MAX_LEVELS):
             if i == j:

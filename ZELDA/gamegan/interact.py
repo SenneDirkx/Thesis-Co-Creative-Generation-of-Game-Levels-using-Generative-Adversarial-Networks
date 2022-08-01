@@ -15,7 +15,7 @@ from collections import OrderedDict
 from torchsummary import summary
 import json
 
-PLOT_V = True
+PLOT_V = False
 PLOT_R = False
 OUTPUT_DIM_RAW = 32
 
@@ -34,6 +34,9 @@ V_ITER = int(sys.argv[10])
 
 W_ITER = int(sys.argv[11])
 C_SIZE = int(sys.argv[12])
+
+print("Custom bounds", t_p, l_p, b_p, r_p)
+print("Context bounds", context_bounds)
 
 latent_path = sys.argv[13]
 edited_path = sys.argv[14]
@@ -64,7 +67,7 @@ COPY_MODE = 'moving'
 # svd, zca
 RANK_METHOD = 'zca'
 
-print("Loading given generator...")
+#print("Loading given generator...")
 
 generator = models.DCGAN_G(imageSize, nz, z_dims, ngf, ngpu, n_extra_layers)
 # This is a state dictionary that might have deprecated key labels/names
@@ -131,7 +134,7 @@ else:
         .reshape(size, depth)).float()
 
 zds = TensorDataset(zds)
-print("Creating C matrix from randomly sampled k...")
+#print("Creating C matrix from randomly sampled k...")
 with torch.no_grad():
     
     loader = make_loader(zds, None, 10)
@@ -241,7 +244,7 @@ clip_mask = interpolated_v_custom_mask[:, :, tv:bv, lv:rv]
 
 random_v = torch.rand(paste_v.shape)
 edited_x = load_edited_x(edited_path)
-v_new = estimate_v(rendering_model, random_v, edited_x, out_width, out_height, V_ITER, plot=PLOT_V)
+v_new = estimate_v(rendering_model, random_v, edited_x, out_width, out_height, V_ITER, lr=LR, plot=PLOT_V)
 
 clip = v_new[:, :, tv:bv, lv:rv]
 center = (tv + bv) // 2, (lv + rv) // 2
@@ -300,7 +303,7 @@ else:
 #sys.exit(0)
 
 
-print("Calculating new weights using (k*,v*) pairs...")
+#print("Calculating new weights using (k*,v*) pairs...")
 
 print("Goal in:", goal_in.shape)
 print("Goal out:", goal_out.shape)
@@ -308,6 +311,7 @@ print("Context:", final_context.shape)
 
 #weight = og_insert()
 loss_begin, loss_end = normal_insert_fixed(target_model, goal_in, goal_out, final_context, W_ITER=W_ITER, P_ITER=4, lr=LR)
+print("Loss change:", loss_begin, '->', loss_end)
 #weight = linear_insert(model, target_model, all_keys, all_values, all_directions, W_ITER, plot=PLOT_R)
 #print(weight.shape)
 

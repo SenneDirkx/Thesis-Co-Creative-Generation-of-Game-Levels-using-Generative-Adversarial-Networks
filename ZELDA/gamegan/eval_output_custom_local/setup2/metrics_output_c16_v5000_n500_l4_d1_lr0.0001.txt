@@ -1,0 +1,15 @@
+Custom bounds 3 3 7 8
+Context bounds [3, 3, 7, 8, 3, 3, 7, 8]
+V bounding box: 3 3 8 9
+ESTIMATE V
+shape x edited torch.Size([1, 4, 16, 11])
+shape start v torch.Size([1, 4, 32, 32])
+Goal in bounding box: 1 1 4 5
+Goal out bounding box: 2 2 8 10
+Goal in: torch.Size([1, 64, 3, 4])
+Goal out: torch.Size([1, 4, 6, 8])
+Context: torch.Size([1, 64])
+Loss change: 0.57328861951828 -> 0.48201239109039307
+Diversity Dice: 0.8618617998163455 in 4950 pairs
+Diversity LPIPS: 0.16722922027111053 in 1225 pairs
+Constraint SAT: 0.93

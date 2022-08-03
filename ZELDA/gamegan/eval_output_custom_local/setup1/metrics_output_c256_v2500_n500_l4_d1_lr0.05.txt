@@ -10,3 +10,6 @@ Goal in: torch.Size([1, 64, 4, 4])
 Goal out: torch.Size([1, 4, 8, 8])
 Context: torch.Size([1, 64])
 Loss change: 0.40165549516677856 -> 0.28844133019447327
+Diversity Dice: 0.8386914600550938 in 4950 pairs
+Diversity LPIPS: 0.16150721907615662 in 1225 pairs
+Constraint SAT: 0.83

@@ -18,6 +18,7 @@ pylon-lib = "*"
 semantic-loss-pytorch = {git = "https://github.com/lucadiliello/semantic-loss-pytorch.git"}
 torchsummary = "*"
 lpips = "*"
+seaborn = "*"
 
 [dev-packages]
 

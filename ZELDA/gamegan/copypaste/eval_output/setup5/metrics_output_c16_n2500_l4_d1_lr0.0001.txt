@@ -12,4 +12,4 @@ Context: torch.Size([1, 64])
 Loss change: 0.9204504489898682 -> 0.3433031439781189
 Diversity Dice: 0.8534492653810849 in 4950 pairs
 Diversity LPIPS: 0.1680826097726822 in 1225 pairs
-Constraint SAT: 0.5
+Constraint SAT: 0.38

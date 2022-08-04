@@ -6,12 +6,13 @@ setup_context=('' '11,12,18,27 6,3,10,7,6,3,10,7,6,3,10,7,6,3,10,7' '46,55,6,63 
  '10,11,12,54 6,3,10,7,6,3,10,7,6,3,10,7,6,3,10,7')
 
 c_options=(16 64 256 512)
-n_options=(500 1000 2500 5000)
+n_options=(2500 5000)
 l_options=(3 4)
 d_options=(1)
 lr_options=(0.0001 0.001 0.01 0.05)
+wanted_setups=(2 4 5)
 
-for setup in {1..5}
+for setup in "${wanted_setups[@]}"
 do
     for c_opt in "${c_options[@]}"
     do

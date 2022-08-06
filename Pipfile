@@ -19,6 +19,8 @@ semantic-loss-pytorch = {git = "https://github.com/lucadiliello/semantic-loss-py
 torchsummary = "*"
 lpips = "*"
 seaborn = "*"
+pillow = "*"
+img2pdf = "*"
 
 [dev-packages]
 
